@@ -1,0 +1,11 @@
+# Custom
+/.private/
+/.logs/
+*.asc
+
+# Local runtime data & caches
+/Data/
+
+# Compiled binaries
+/Sunfire
+/push.sh.log

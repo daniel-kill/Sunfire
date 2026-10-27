@@ -1,0 +1,21 @@
+[Unit]
+Description=Sunfire Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/elysium/Repos/Sunfire
+Environment=SUNFIRE_HOME=/home/elysium/Repos/Sunfire
+Environment=SUNFIRE_CONFIG_FILE=/home/elysium/Repos/Sunfire/.private/config.json
+ExecStart=/home/elysium/Repos/Sunfire/Sunfire
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

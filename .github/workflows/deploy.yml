@@ -1,0 +1,31 @@
+name: Deploy Sunfire to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH with Retry
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          timeout: 90s
+          command_timeout: 15m
+          script: |
+            echo "Starting deployment..."
+            export PATH=$PATH:/usr/local/go/bin
+            export XDG_RUNTIME_DIR=/run/user/$(id -u)
+            cd ~/Repos/Sunfire
+            git pull origin main
+            go build -o Sunfire .
+            systemctl --user restart sunfire.service
+            systemctl --user is-active --quiet sunfire.service && echo "Sunfire restarted successfully" || (systemctl --user status sunfire.service --no-pager && exit 1)
+        env:
+          CONNECT_TIMEOUT: 60
