@@ -73,10 +73,10 @@ func TestYouTubeNotifierCachesOnlyAfterSuccessfulDelivery(t *testing.T) {
 	setNotifierTestState(t, &GuildSettings{
 		YouTubeEnabled: true, YouTubeChannelID: "channel", YouTubers: []string{"UC12345678901234567890"},
 	}, func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path != "/youtube/v3/search" {
+		if req.URL.Path != "/youtube/v3/playlistItems" {
 			t.Fatalf("unexpected request URL: %s", req.URL)
 		}
-		return notifierResponse(req, http.StatusOK, `{"items":[{"id":{"videoId":"new"},"snippet":{"title":"Latest","channelTitle":"Creator"}}]}`), nil
+		return notifierResponse(req, http.StatusOK, `{"items":[{"snippet":{"title":"Latest","channelTitle":"Creator","resourceId":{"videoId":"new"}}}]}`), nil
 	})
 
 	sends := 0

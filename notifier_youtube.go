@@ -21,15 +21,15 @@ type youtubeMonitorCacheEntry struct {
 	LastVideoID string `json:"lastVideoId"`
 }
 
-type youtubeSearchResponse struct {
+type youtubePlaylistItemsResponse struct {
 	Items []struct {
-		ID struct {
-			VideoID string `json:"videoId"`
-		} `json:"id"`
 		Snippet struct {
 			Title        string    `json:"title"`
 			PublishedAt  time.Time `json:"publishedAt"`
 			ChannelTitle string    `json:"channelTitle"`
+			ResourceID   struct {
+				VideoID string `json:"videoId"`
+			} `json:"resourceId"`
 		} `json:"snippet"`
 	} `json:"items"`
 }
@@ -41,9 +41,10 @@ type youtubeChannelResponse struct {
 }
 
 var (
-	ytMu        sync.Mutex
-	ytCache     map[string]youtubeMonitorCacheEntry
-	ytCachePath string
+	ytMu             sync.Mutex
+	ytCache          map[string]youtubeMonitorCacheEntry
+	ytChannelIDCache = make(map[string]string)
+	ytCachePath      string
 )
 
 func initYTCache() {
@@ -81,6 +82,14 @@ func saveYTCache() error {
 	return nil
 }
 
+// uploadsPlaylistID derives the uploads playlist ID from a channel ID (UC... -> UU...).
+func uploadsPlaylistID(chanID string) string {
+	if strings.HasPrefix(chanID, "UC") && len(chanID) > 2 {
+		return "UU" + chanID[2:]
+	}
+	return chanID
+}
+
 // resolveYouTubeChannelID resolves an @handle or returns channel ID directly
 func resolveYouTubeChannelID(source, apiKey string) (string, error) {
 	s := strings.TrimSpace(source)
@@ -94,6 +103,13 @@ func resolveYouTubeChannelID(source, apiKey string) (string, error) {
 	if strings.HasPrefix(s, "UC") && len(s) >= 20 {
 		return s, nil
 	}
+
+	ytMu.Lock()
+	if cached, ok := ytChannelIDCache[source]; ok {
+		ytMu.Unlock()
+		return cached, nil
+	}
+	ytMu.Unlock()
 
 	if strings.HasPrefix(s, "@") {
 		handle := strings.TrimPrefix(s, "@")
@@ -126,7 +142,11 @@ func resolveYouTubeChannelID(source, apiKey string) (string, error) {
 			return "", fmt.Errorf("decoding YouTube channel response: %w", err)
 		}
 		if len(cResp.Items) > 0 {
-			return cResp.Items[0].ID, nil
+			id := cResp.Items[0].ID
+			ytMu.Lock()
+			ytChannelIDCache[source] = id
+			ytMu.Unlock()
+			return id, nil
 		}
 	}
 
@@ -158,15 +178,14 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 			cacheKey := fmt.Sprintf("%s:%s", guildID, chanID)
 			cached := ytCache[cacheKey]
 
+			uploadsID := uploadsPlaylistID(chanID)
 			query := url.Values{
 				"part":       {"snippet"},
-				"channelId":  {chanID},
-				"order":      {"date"},
-				"type":       {"video"},
+				"playlistId": {uploadsID},
 				"maxResults": {"1"},
 				"key":        {cfg.YouTubeAPIKey},
 			}
-			apiURL := "https://www.googleapis.com/youtube/v3/search?" + query.Encode()
+			apiURL := "https://www.googleapis.com/youtube/v3/playlistItems?" + query.Encode()
 			client := notifierClient(15 * time.Second)
 			resp, err := client.Get(apiURL)
 			if err != nil {
@@ -189,7 +208,7 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 				continue
 			}
 
-			var sResp youtubeSearchResponse
+			var sResp youtubePlaylistItemsResponse
 			if err := json.Unmarshal(body, &sResp); err != nil {
 				log.Printf("YouTube notifier: decode latest video response for channel %s: %v", chanID, err)
 				continue
@@ -200,7 +219,7 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 			}
 
 			latest := sResp.Items[0]
-			videoID := latest.ID.VideoID
+			videoID := latest.Snippet.ResourceID.VideoID
 			if videoID == "" {
 				continue
 			}
