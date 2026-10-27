@@ -316,6 +316,7 @@ func checkHermesTipsUpdates(s *discordgo.Session) (newTipsCount int, err error) 
 				_, sendErr := sendNotifierMessage(s, HermesTipsChannelID, content)
 				if sendErr != nil {
 					log.Printf("[Hermes] Failed to post tip to Discord: %v", sendErr)
+					return newTipsCount, nil
 				} else {
 					hermesState.PostedKeys = append(hermesState.PostedKeys, key)
 					postedSet[key] = true
