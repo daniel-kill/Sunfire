@@ -23,8 +23,17 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// HermesTipsChannelID is the designated Discord channel for Hermes tips.
-const HermesTipsChannelID = "1555337100273123408"
+// HermesTipsChannelID is the fallback or test-overridden Discord channel for Hermes tips.
+var HermesTipsChannelID string
+
+// getHermesTipsChannelID returns the configured Discord channel for Hermes tips from config, or HermesTipsChannelID.
+func getHermesTipsChannelID() string {
+	cfg, err := loadConfig()
+	if err == nil && cfg != nil && strings.TrimSpace(cfg.HermesTipsChannelID) != "" {
+		return strings.TrimSpace(cfg.HermesTipsChannelID)
+	}
+	return strings.TrimSpace(HermesTipsChannelID)
+}
 
 // HermesTip represents the structure of each tip in hermes_tips.json.
 type HermesTip struct {
@@ -291,7 +300,14 @@ func checkHermesTipsUpdates(s *discordgo.Session) (newTipsCount int, err error) 
 		return 0, nil
 	}
 
-	log.Printf("[Hermes] Discovered %d new tips to post to channel %s", len(newTips), HermesTipsChannelID)
+	channelID := getHermesTipsChannelID()
+	if s != nil && channelID == "" {
+		log.Printf("[Hermes] Discovered %d new tips, but hermesTipsChannelId is not configured; gracefully pausing Discord posting", len(newTips))
+		return 0, nil
+	}
+	if channelID != "" {
+		log.Printf("[Hermes] Discovered %d new tips to post to channel %s", len(newTips), channelID)
+	}
 
 	// Post newly found tips: 3 tips every 3 seconds
 	batchSize := 3
@@ -313,7 +329,7 @@ func checkHermesTipsUpdates(s *discordgo.Session) (newTipsCount int, err error) 
 			}
 
 			if s != nil {
-				_, sendErr := sendNotifierMessage(s, HermesTipsChannelID, content)
+				_, sendErr := sendNotifierMessage(s, channelID, content)
 				if sendErr != nil {
 					log.Printf("[Hermes] Failed to post tip to Discord: %v", sendErr)
 					return newTipsCount, nil

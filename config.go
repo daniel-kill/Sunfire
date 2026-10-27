@@ -29,6 +29,7 @@ type Config struct {
 	InfoCategoryID      string            `json:"infoCategoryId,omitempty"`
 	RulesChannelID      string            `json:"rulesChannelId,omitempty"`
 	VoiceChannelID      string            `json:"voiceChannelId,omitempty"`
+	HermesTipsChannelID string            `json:"hermesTipsChannelId,omitempty"`
 	HealthCheck         HealthCheckConfig `json:"healthCheck"`
 	AnyAPI              []AnyAPIProvider  `json:"anyApi"`
 	VeniceAPIKey        string            `json:"veniceApiKey"`

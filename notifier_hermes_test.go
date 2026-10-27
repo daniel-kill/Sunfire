@@ -70,15 +70,18 @@ func TestHermesTipsParsingAndDeduplication(t *testing.T) {
 
 func TestHermesNotifierMarksTipsPostedOnlyAfterSuccessfulDelivery(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldPath, oldState, oldDelay := hermesJSONPath, hermesState, hermesRateLimitDelay
+	oldPath, oldState, oldDelay, oldChan := hermesJSONPath, hermesState, hermesRateLimitDelay, HermesTipsChannelID
 	oldClient, oldSend := notifierHTTPClient, sendNotifierMessage
 	defer func() {
 		hermesJSONPath = oldPath
 		hermesState = oldState
 		hermesRateLimitDelay = oldDelay
+		HermesTipsChannelID = oldChan
 		notifierHTTPClient = oldClient
 		sendNotifierMessage = oldSend
 	}()
+
+	HermesTipsChannelID = "test-channel"
 
 	hermesJSONPath = filepath.Join(tmpDir, "hermes_tips.json")
 	hermesRateLimitDelay = time.Millisecond
@@ -120,5 +123,30 @@ func TestHermesNotifierMarksTipsPostedOnlyAfterSuccessfulDelivery(t *testing.T) 
 	}
 	if count == 0 || len(hermesState.PostedKeys) == 0 {
 		t.Fatalf("successful Discord send was not recorded: count=%d state=%#v", count, hermesState)
+	}
+}
+
+
+func TestHermesNotifierPausesWhenChannelNotConfigured(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldPath, oldState, oldDelay, oldChan := hermesJSONPath, hermesState, hermesRateLimitDelay, HermesTipsChannelID
+	defer func() {
+		hermesJSONPath = oldPath
+		hermesState = oldState
+		hermesRateLimitDelay = oldDelay
+		HermesTipsChannelID = oldChan
+	}()
+
+	hermesJSONPath = filepath.Join(tmpDir, "hermes_tips.json")
+	hermesRateLimitDelay = time.Millisecond
+	HermesTipsChannelID = ""
+
+	session := &discordgo.Session{}
+	count, err := checkHermesTipsUpdates(session)
+	if err != nil {
+		t.Fatalf("expected no error when channel not configured, got: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 delivered tips when channel not configured, got: %d", count)
 	}
 }
