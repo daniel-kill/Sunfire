@@ -129,6 +129,7 @@ func TestHermesNotifierMarksTipsPostedOnlyAfterSuccessfulDelivery(t *testing.T) 
 
 func TestHermesNotifierPausesWhenChannelNotConfigured(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("SUNFIRE_CONFIG_FILE", filepath.Join(tmpDir, "empty_config.json"))
 	oldPath, oldState, oldDelay, oldChan := hermesJSONPath, hermesState, hermesRateLimitDelay, HermesTipsChannelID
 	defer func() {
 		hermesJSONPath = oldPath

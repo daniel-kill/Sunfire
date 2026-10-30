@@ -107,9 +107,42 @@ func (sc *ScrapeConfig) UnmarshalJSON(data []byte) error {
 }
 
 type HealthCheckConfig struct {
-	Enabled  bool     `json:"enabled"`
-	Interval int      `json:"intervalMinutes"`
-	Targets  []string `json:"targets"`
+	Enabled   bool     `json:"enabled"`
+	Interval  int      `json:"intervalMinutes"`
+	Targets   []string `json:"targets"`
+	ChannelID string   `json:"channelId,omitempty"`
+}
+
+// UnmarshalJSON allows ChannelID to be parsed from either a string or JSON number (Discord snowflake ID).
+func (hc *HealthCheckConfig) UnmarshalJSON(data []byte) error {
+	type Alias HealthCheckConfig
+	var raw struct {
+		Alias
+		RawChannelID interface{} `json:"channelId"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+	*hc = HealthCheckConfig(raw.Alias)
+	switch v := raw.RawChannelID.(type) {
+	case string:
+		hc.ChannelID = strings.TrimSpace(v)
+	case json.Number:
+		hc.ChannelID = v.String()
+	case float64:
+		hc.ChannelID = fmt.Sprintf("%.0f", v)
+	}
+	return nil
+}
+
+// TargetChannelID returns the configured health check channel ID, or falls back to the default logging channel.
+func (hc HealthCheckConfig) TargetChannelID() string {
+	if cid := strings.TrimSpace(hc.ChannelID); cid != "" {
+		return cid
+	}
+	return channelID()
 }
 
 type AnyAPIProvider struct {
