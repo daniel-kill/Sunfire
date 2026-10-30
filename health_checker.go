@@ -82,7 +82,17 @@ func (hc *healthChecker) checkOnce() {
 	wg.Wait()
 }
 
-// checkTarget probes one URL and posts to #logs on a state change.
+// targetChannel resolves the destination channel, checking for updated config and falling back to default logging.
+func (hc *healthChecker) targetChannel() string {
+	if cfg, err := loadConfig(); err == nil && cfg != nil {
+		if cid := cfg.HealthCheck.TargetChannelID(); cid != "" {
+			return cid
+		}
+	}
+	return hc.cfg.TargetChannelID()
+}
+
+// checkTarget probes one URL and posts on a state change.
 func (hc *healthChecker) checkTarget(url string) {
 	up := probe(url)
 	hc.state.mu.Lock()
@@ -94,11 +104,16 @@ func (hc *healthChecker) checkTarget(url string) {
 		return // no change (or first check — don't spam on startup)
 	}
 
+	cid := hc.targetChannel()
+	if cid == "" {
+		return
+	}
+
 	dl := newLogger(hc.session)
 	if up {
-		dl.log("INFO", "✅ **"+url+"** is back UP ("+formatTimestamp()+")")
+		dl.logTo(cid, "INFO", "✅ **"+url+"** is back UP ("+formatTimestamp()+")")
 	} else {
-		dl.log("ERROR", "🛑 **"+url+"** is DOWN ("+formatTimestamp()+")")
+		dl.logTo(cid, "ERROR", "🛑 **"+url+"** is DOWN ("+formatTimestamp()+")")
 	}
 }
 

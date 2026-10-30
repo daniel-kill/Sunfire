@@ -127,3 +127,24 @@ func TestScrapeConfigUnmarshal(t *testing.T) {
 		t.Errorf("expected channel ID '987654321098765432', got %q", sc.ChannelIDs[1])
 	}
 }
+
+func TestHealthCheckConfigUnmarshal(t *testing.T) {
+	jsonData := `{
+		"enabled": true,
+		"intervalMinutes": 5,
+		"channelId": 1564465554864209920,
+		"targets": ["https://alienentity.xyz"]
+	}`
+
+	var hc HealthCheckConfig
+	if err := json.Unmarshal([]byte(jsonData), &hc); err != nil {
+		t.Fatalf("failed to unmarshal HealthCheckConfig: %v", err)
+	}
+
+	if hc.ChannelID != "1564465554864209920" {
+		t.Errorf("expected ChannelID '1564465554864209920', got %q", hc.ChannelID)
+	}
+	if hc.TargetChannelID() != "1564465554864209920" {
+		t.Errorf("expected TargetChannelID '1564465554864209920', got %q", hc.TargetChannelID())
+	}
+}

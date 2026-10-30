@@ -18,7 +18,10 @@ func newLogger(s *discordgo.Session) *logger {
 }
 
 func (l *logger) log(level, msg string) {
-	cid := channelID()
+	l.logTo(channelID(), level, msg)
+}
+
+func (l *logger) logTo(cid, level, msg string) {
 	if cid == "" {
 		return
 	}
