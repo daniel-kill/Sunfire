@@ -318,17 +318,14 @@ func TestScrapeNotifierCachesOnlyAfterSuccessfulDelivery(t *testing.T) {
 	}
 }
 
-func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
+func TestRSSNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
 	dir := t.TempDir()
-	oldCache, oldPath := discordChangeLogCache, discordChangeLogCachePath
-	discordChangeLogCache = discordChangeLogState{
-		Guilds: make(map[string]struct {
-			Initialized bool     `json:"initialized"`
-			SeenGUIDs   []string `json:"seenGuids"`
-		}),
+	oldCache, oldPath := rssFeedCache, rssFeedCachePath
+	rssFeedCache = rssFeedCacheState{
+		Guilds: make(map[string]map[string]rssFeedGuildEntry),
 	}
-	discordChangeLogCachePath = filepath.Join(dir, "discord_changelog.json")
-	t.Cleanup(func() { discordChangeLogCache, discordChangeLogCachePath = oldCache, oldPath })
+	rssFeedCachePath = filepath.Join(dir, "rss_feeds.json")
+	t.Cleanup(func() { rssFeedCache, rssFeedCachePath = oldCache, oldPath })
 
 	sampleRSS := `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -347,8 +344,9 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 
 	currentRSS := sampleRSS
 	setNotifierTestState(t, &GuildSettings{
-		DiscordChangeLogEnabled:   true,
-		DiscordChangeLogChannelID: "target-channel",
+		RSSFeedsEnabled:   true,
+		RSSFeedsChannelID: "target-channel",
+		RSSFeeds:          []string{"https://docs.discord.com/developers/change-log/rss"},
 	}, func(req *http.Request) (*http.Response, error) {
 		return notifierResponse(req, http.StatusOK, currentRSS), nil
 	})
@@ -365,13 +363,14 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 	}
 
 	// 1. Initial run seeds the cache without sending announcements
-	checkDiscordChangeLogUpdates(nil, &Config{})
+	checkRSSFeedUpdates(nil, &Config{})
 	if sentCount != 0 {
 		t.Fatalf("expected 0 messages on initial seed, got %d", sentCount)
 	}
-	gState := discordChangeLogCache.Guilds[SunfireServerID]
-	if !gState.Initialized || len(gState.SeenGUIDs) != 1 || gState.SeenGUIDs[0] != "guid-1" {
-		t.Fatalf("initial seed not recorded properly: %#v", gState)
+	normalizedURL := "https://docs.discord.com/developers/change-log/rss.xml"
+	fState := rssFeedCache.Guilds[SunfireServerID][normalizedURL]
+	if !fState.Initialized || len(fState.SeenGUIDs) != 1 || fState.SeenGUIDs[0] != "guid-1" {
+		t.Fatalf("initial seed not recorded properly: %#v", fState)
 	}
 
 	// 2. Add second entry to feed
@@ -381,7 +380,7 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 		<title>Change Log</title>
 		<item>
 			<title>Second Entry</title>
-			<description>Second description</description>
+			<description>Second description with &lt;b&gt;HTML&lt;/b&gt;</description>
 			<link>https://docs.discord.com/developers/change-log#two</link>
 			<guid>guid-2</guid>
 			<category>Gateway</category>
@@ -399,15 +398,18 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 </rss>`
 
 	currentRSS = secondRSS
-	checkDiscordChangeLogUpdates(nil, &Config{})
+	checkRSSFeedUpdates(nil, &Config{})
 	if sentCount != 1 {
 		t.Fatalf("expected 1 message for new item, got %d", sentCount)
 	}
 	if lastSent == nil || len(lastSent.Embeds) == 0 || lastSent.Embeds[0].Title != "Second Entry" {
 		t.Fatalf("expected embed with title 'Second Entry', got %#v", lastSent)
 	}
-	gState = discordChangeLogCache.Guilds[SunfireServerID]
-	if len(gState.SeenGUIDs) != 2 || gState.SeenGUIDs[1] != "guid-2" {
-		t.Fatalf("cache not updated with new GUID: %#v", gState)
+	if lastSent.Embeds[0].Description != "Second description with HTML" {
+		t.Fatalf("expected cleaned description, got %q", lastSent.Embeds[0].Description)
+	}
+	fState = rssFeedCache.Guilds[SunfireServerID][normalizedURL]
+	if len(fState.SeenGUIDs) != 2 || fState.SeenGUIDs[1] != "guid-2" {
+		t.Fatalf("cache not updated with new GUID: %#v", fState)
 	}
 }
