@@ -345,11 +345,12 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 	</channel>
 </rss>`
 
+	currentRSS := sampleRSS
 	setNotifierTestState(t, &GuildSettings{
 		DiscordChangeLogEnabled:   true,
 		DiscordChangeLogChannelID: "target-channel",
 	}, func(req *http.Request) (*http.Response, error) {
-		return notifierResponse(req, http.StatusOK, sampleRSS), nil
+		return notifierResponse(req, http.StatusOK, currentRSS), nil
 	})
 
 	sentCount := 0
@@ -397,13 +398,7 @@ func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T)
 	</channel>
 </rss>`
 
-	setNotifierTestState(t, &GuildSettings{
-		DiscordChangeLogEnabled:   true,
-		DiscordChangeLogChannelID: "target-channel",
-	}, func(req *http.Request) (*http.Response, error) {
-		return notifierResponse(req, http.StatusOK, secondRSS), nil
-	})
-
+	currentRSS = secondRSS
 	checkDiscordChangeLogUpdates(nil, &Config{})
 	if sentCount != 1 {
 		t.Fatalf("expected 1 message for new item, got %d", sentCount)
