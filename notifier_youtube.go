@@ -43,6 +43,7 @@ type youtubeChannelResponse struct {
 var (
 	ytMu             sync.Mutex
 	ytCache          map[string]youtubeMonitorCacheEntry
+	ytChannelIDMu    sync.RWMutex
 	ytChannelIDCache = make(map[string]string)
 	ytCachePath      string
 )
@@ -104,12 +105,12 @@ func resolveYouTubeChannelID(source, apiKey string) (string, error) {
 		return s, nil
 	}
 
-	ytMu.Lock()
+	ytChannelIDMu.RLock()
 	if cached, ok := ytChannelIDCache[source]; ok {
-		ytMu.Unlock()
+		ytChannelIDMu.RUnlock()
 		return cached, nil
 	}
-	ytMu.Unlock()
+	ytChannelIDMu.RUnlock()
 
 	if strings.HasPrefix(s, "@") {
 		handle := strings.TrimPrefix(s, "@")
@@ -143,9 +144,9 @@ func resolveYouTubeChannelID(source, apiKey string) (string, error) {
 		}
 		if len(cResp.Items) > 0 {
 			id := cResp.Items[0].ID
-			ytMu.Lock()
+			ytChannelIDMu.Lock()
 			ytChannelIDCache[source] = id
-			ytMu.Unlock()
+			ytChannelIDMu.Unlock()
 			return id, nil
 		}
 	}
@@ -160,8 +161,6 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 	}
 
 	guilds := loadGuildSettings()
-	ytMu.Lock()
-	defer ytMu.Unlock()
 
 	for guildID, gCfg := range guilds {
 		if !gCfg.YouTubeEnabled || gCfg.YouTubeChannelID == "" || len(gCfg.YouTubers) == 0 {
@@ -176,7 +175,9 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 			}
 
 			cacheKey := fmt.Sprintf("%s:%s", guildID, chanID)
+			ytMu.Lock()
 			cached := ytCache[cacheKey]
+			ytMu.Unlock()
 
 			uploadsID := uploadsPlaylistID(chanID)
 			query := url.Values{
@@ -224,6 +225,8 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 				continue
 			}
 
+			ytMu.Lock()
+			cached = ytCache[cacheKey]
 			if cached.LastVideoID == "" {
 				// Initial seed
 				ytCache[cacheKey] = youtubeMonitorCacheEntry{LastVideoID: videoID}
@@ -231,10 +234,12 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 					delete(ytCache, cacheKey)
 					log.Printf("YouTube notifier: persist initial video state for channel %s: %v", chanID, err)
 				}
+				ytMu.Unlock()
 				continue
 			}
 
 			if cached.LastVideoID != videoID {
+				ytMu.Unlock()
 				videoURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 				content := fmt.Sprintf("🎬 **%s** uploaded a new video!\n**%s**\n%s", latest.Snippet.ChannelTitle, latest.Snippet.Title, videoURL)
 				if gCfg.YouTubeRoleID != nil && *gCfg.YouTubeRoleID != "" {
@@ -245,11 +250,15 @@ func checkYouTubeUpdates(s *discordgo.Session, cfg *Config) {
 					log.Printf("YouTube notifier: send upload announcement for channel %s: %v", chanID, err)
 					continue
 				}
+				ytMu.Lock()
 				ytCache[cacheKey] = youtubeMonitorCacheEntry{LastVideoID: videoID}
 				if err := saveYTCache(); err != nil {
 					ytCache[cacheKey] = cached
 					log.Printf("YouTube notifier: persist delivered video state for channel %s: %v", chanID, err)
 				}
+				ytMu.Unlock()
+			} else {
+				ytMu.Unlock()
 			}
 		}
 	}

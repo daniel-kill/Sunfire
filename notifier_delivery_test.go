@@ -102,6 +102,43 @@ func TestYouTubeNotifierCachesOnlyAfterSuccessfulDelivery(t *testing.T) {
 	}
 }
 
+func TestYouTubeNotifierResolvesHandleWithoutDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	oldCache, oldPath := ytCache, ytCachePath
+	ytCache = map[string]youtubeMonitorCacheEntry{}
+	ytCachePath = filepath.Join(dir, "youtube.json")
+	t.Cleanup(func() { ytCache, ytCachePath = oldCache, oldPath })
+
+	setNotifierTestState(t, &GuildSettings{
+		YouTubeEnabled:   true,
+		YouTubeChannelID: "channel",
+		YouTubers:        []string{"https://www.youtube.com/@testhandle"},
+	}, func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/youtube/v3/channels":
+			if req.URL.Query().Get("forHandle") != "testhandle" {
+				t.Fatalf("unexpected forHandle query: %s", req.URL.Query().Get("forHandle"))
+			}
+			return notifierResponse(req, http.StatusOK, `{"items":[{"id":"UCresolved1234567890"}]}`), nil
+		case "/youtube/v3/playlistItems":
+			if req.URL.Query().Get("playlistId") != "UUresolved1234567890" {
+				t.Fatalf("unexpected playlistId: %s", req.URL.Query().Get("playlistId"))
+			}
+			return notifierResponse(req, http.StatusOK, `{"items":[{"snippet":{"title":"Latest Video","channelTitle":"Test Creator","resourceId":{"videoId":"v12345"}}}]}`), nil
+		default:
+			t.Fatalf("unexpected request URL: %s", req.URL)
+			return nil, nil
+		}
+	})
+
+	cfg := &Config{YouTubeAPIKey: "test-key"}
+	checkYouTubeUpdates(nil, cfg)
+
+	if got := ytCache[SunfireServerID+":UCresolved1234567890"].LastVideoID; got != "v12345" {
+		t.Fatalf("expected initial seed v12345, got %q", got)
+	}
+}
+
 func TestMoviesNotifierDoesNotCacheFailedDeliveryAndRollsBackFailedPersistence(t *testing.T) {
 	dir := t.TempDir()
 	oldCache, oldPath := moviesCache, moviesCachePath
