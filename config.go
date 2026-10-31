@@ -68,8 +68,10 @@ type Config struct {
 	AudiusAPIBearerToken          string        `json:"AUDIUS_API_BEARER_TOKEN"`
 	TarotAPIBaseURL               string        `json:"TAROT_API_BASE_URL"`
 	PostgresConnectionString      string        `json:"POSTGRES_CONNECTION_STRING"`
-	MessageLoggingEnabled         bool          `json:"MESSAGE_LOGGING_ENABLED"`
-	Scrape                        ScrapeConfig  `json:"scrape"`
+	MessageLoggingEnabled          bool          `json:"MESSAGE_LOGGING_ENABLED"`
+	DiscordChangeLogPollIntervalMs int           `json:"DISCORD_CHANGELOG_POLL_INTERVAL"`
+	DiscordChangeLogFeedURL        string        `json:"DISCORD_CHANGELOG_FEED_URL"`
+	Scrape                         ScrapeConfig  `json:"scrape"`
 	Guild                         GuildSettings `json:"guild"`
 }
 

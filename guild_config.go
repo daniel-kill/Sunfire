@@ -40,6 +40,9 @@ type GuildSettings struct {
 	FreeStuffEnabled             bool                   `json:"freeStuffEnabled"`
 	FreeStuffChannelID           string                 `json:"freeStuffChannelId"`
 	FreeStuffRoleID              *string                `json:"freeStuffRoleId"`
+	DiscordChangeLogEnabled      bool                   `json:"discordChangeLogEnabled"`
+	DiscordChangeLogChannelID    string                 `json:"discordChangeLogChannelId"`
+	DiscordChangeLogRoleID       *string                `json:"discordChangeLogRoleId"`
 }
 
 var (

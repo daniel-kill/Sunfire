@@ -317,3 +317,102 @@ func TestScrapeNotifierCachesOnlyAfterSuccessfulDelivery(t *testing.T) {
 		t.Fatalf("cache not advanced after successful send: %#v", got)
 	}
 }
+
+func TestDiscordChangeLogNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
+	dir := t.TempDir()
+	oldCache, oldPath := discordChangeLogCache, discordChangeLogCachePath
+	discordChangeLogCache = discordChangeLogState{
+		Guilds: make(map[string]struct {
+			Initialized bool     `json:"initialized"`
+			SeenGUIDs   []string `json:"seenGuids"`
+		}),
+	}
+	discordChangeLogCachePath = filepath.Join(dir, "discord_changelog.json")
+	t.Cleanup(func() { discordChangeLogCache, discordChangeLogCachePath = oldCache, oldPath })
+
+	sampleRSS := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+	<channel>
+		<title>Change Log</title>
+		<item>
+			<title>First Entry</title>
+			<description>First description</description>
+			<link>https://docs.discord.com/developers/change-log#one</link>
+			<guid>guid-1</guid>
+			<category>HTTP API</category>
+			<pubDate>Fri, 30 Oct 2026 12:00:00 GMT</pubDate>
+		</item>
+	</channel>
+</rss>`
+
+	setNotifierTestState(t, &GuildSettings{
+		DiscordChangeLogEnabled:   true,
+		DiscordChangeLogChannelID: "target-channel",
+	}, func(req *http.Request) (*http.Response, error) {
+		return notifierResponse(req, http.StatusOK, sampleRSS), nil
+	})
+
+	sentCount := 0
+	var lastSent *discordgo.MessageSend
+	sendNotifierComplex = func(_ *discordgo.Session, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
+		if channelID != "target-channel" {
+			t.Fatalf("unexpected target channel: %s", channelID)
+		}
+		sentCount++
+		lastSent = message
+		return &discordgo.Message{ID: "msg-1"}, nil
+	}
+
+	// 1. Initial run seeds the cache without sending announcements
+	checkDiscordChangeLogUpdates(nil, &Config{})
+	if sentCount != 0 {
+		t.Fatalf("expected 0 messages on initial seed, got %d", sentCount)
+	}
+	gState := discordChangeLogCache.Guilds[SunfireServerID]
+	if !gState.Initialized || len(gState.SeenGUIDs) != 1 || gState.SeenGUIDs[0] != "guid-1" {
+		t.Fatalf("initial seed not recorded properly: %#v", gState)
+	}
+
+	// 2. Add second entry to feed
+	secondRSS := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+	<channel>
+		<title>Change Log</title>
+		<item>
+			<title>Second Entry</title>
+			<description>Second description</description>
+			<link>https://docs.discord.com/developers/change-log#two</link>
+			<guid>guid-2</guid>
+			<category>Gateway</category>
+			<pubDate>Sat, 31 Oct 2026 12:00:00 GMT</pubDate>
+		</item>
+		<item>
+			<title>First Entry</title>
+			<description>First description</description>
+			<link>https://docs.discord.com/developers/change-log#one</link>
+			<guid>guid-1</guid>
+			<category>HTTP API</category>
+			<pubDate>Fri, 30 Oct 2026 12:00:00 GMT</pubDate>
+		</item>
+	</channel>
+</rss>`
+
+	setNotifierTestState(t, &GuildSettings{
+		DiscordChangeLogEnabled:   true,
+		DiscordChangeLogChannelID: "target-channel",
+	}, func(req *http.Request) (*http.Response, error) {
+		return notifierResponse(req, http.StatusOK, secondRSS), nil
+	})
+
+	checkDiscordChangeLogUpdates(nil, &Config{})
+	if sentCount != 1 {
+		t.Fatalf("expected 1 message for new item, got %d", sentCount)
+	}
+	if lastSent == nil || len(lastSent.Embeds) == 0 || lastSent.Embeds[0].Title != "Second Entry" {
+		t.Fatalf("expected embed with title 'Second Entry', got %#v", lastSent)
+	}
+	gState = discordChangeLogCache.Guilds[SunfireServerID]
+	if len(gState.SeenGUIDs) != 2 || gState.SeenGUIDs[1] != "guid-2" {
+		t.Fatalf("cache not updated with new GUID: %#v", gState)
+	}
+}
