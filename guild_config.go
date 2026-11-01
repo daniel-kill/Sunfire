@@ -44,6 +44,10 @@ type GuildSettings struct {
 	RSSFeedsChannelID            string                 `json:"rssFeedsChannelId"`
 	RSSFeedsRoleID               *string                `json:"rssFeedsRoleId"`
 	RSSFeeds                     []string               `json:"rssFeeds"`
+	JobsEnabled                  bool                   `json:"jobsEnabled"`
+	JobsChannelID                string                 `json:"jobsChannelId"`
+	JobsRoleID                   *string                `json:"jobsRoleId"`
+	JobsIntervalHours            int                    `json:"jobsIntervalHours"`
 }
 
 var (

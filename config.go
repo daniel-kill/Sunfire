@@ -70,6 +70,7 @@ type Config struct {
 	PostgresConnectionString      string        `json:"POSTGRES_CONNECTION_STRING"`
 	MessageLoggingEnabled         bool          `json:"MESSAGE_LOGGING_ENABLED"`
 	RSSFeedsPollIntervalMs        int           `json:"RSS_FEEDS_POLL_INTERVAL"`
+	JobsPollIntervalMs            int           `json:"JOBS_POLL_INTERVAL"`
 	Scrape                        ScrapeConfig  `json:"scrape"`
 	Guild                         GuildSettings `json:"guild"`
 }
