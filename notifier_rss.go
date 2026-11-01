@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +37,7 @@ type rssItemXML struct {
 	Description string   `xml:"description"`
 	Link        string   `xml:"link"`
 	GUID        string   `xml:"guid"`
+	Author      string   `xml:"author"`
 	Categories  []string `xml:"category"`
 	PubDate     string   `xml:"pubDate"`
 }
@@ -119,6 +122,7 @@ func cleanFeedDescription(s string) string {
 		}
 	}
 	cleaned := strings.TrimSpace(b.String())
+	cleaned = html.UnescapeString(cleaned)
 	if len(cleaned) > 2048 {
 		cleaned = cleaned[:2045] + "..."
 	}
@@ -158,7 +162,14 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 				continue
 			}
 
-			resp, err := client.Get(feedURL)
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, feedURL, nil)
+			if err != nil {
+				log.Printf("RSS notifier: build request for %s: %v", feedURL, err)
+				continue
+			}
+			req.Header.Set("User-Agent", "Sunfire-Bot/1.0 (+https://github.com/daniel-kill/Sunfire)")
+
+			resp, err := client.Do(req)
 			if err != nil {
 				log.Printf("RSS notifier: fetch feed %s: %v", feedURL, err)
 				continue
@@ -199,24 +210,25 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 
 			if !exists || !fEntry.Initialized {
 				allGuids := make([]string, 0, len(items))
-				for _, itm := range items {
-					id := strings.TrimSpace(itm.GUID)
+				// Seed historical items (items[1:]) so ancient archives are not spammed,
+				// but leave the latest item (items[0]) unseen so the channel receives the latest post.
+				for i := 1; i < len(items); i++ {
+					id := strings.TrimSpace(items[i].GUID)
 					if id == "" {
-						id = strings.TrimSpace(itm.Link)
+						id = strings.TrimSpace(items[i].Link)
 					}
 					if id != "" {
 						allGuids = append(allGuids, id)
 					}
 				}
-				rssFeedCache.Guilds[guildID][feedURL] = rssFeedGuildEntry{
+				fEntry = rssFeedGuildEntry{
 					Initialized: true,
 					SeenGUIDs:   allGuids,
 				}
+				rssFeedCache.Guilds[guildID][feedURL] = fEntry
 				if err := saveRSSCache(); err != nil {
 					log.Printf("RSS notifier: persist initial seed for %s (%s): %v", feedURL, guildID, err)
 				}
-				rssFeedMu.Unlock()
-				continue
 			}
 
 			seenMap := make(map[string]bool, len(fEntry.SeenGUIDs))
@@ -240,6 +252,11 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 				continue
 			}
 
+			// Cap unseen items to at most 5 per poll to prevent spamming
+			if len(newItems) > 5 {
+				newItems = newItems[:5]
+			}
+
 			// Reverse so oldest unseen entry is posted first
 			for i, j := 0, len(newItems)-1; i < j; i, j = i+1, j-1 {
 				newItems[i], newItems[j] = newItems[j], newItems[i]
@@ -260,10 +277,15 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 					id = strings.TrimSpace(itm.Link)
 				}
 
+				title := strings.TrimSpace(itm.Title)
+				if len(title) > 250 {
+					title = title[:247] + "..."
+				}
+
 				desc := cleanFeedDescription(itm.Description)
 
 				embed := &discordgo.MessageEmbed{
-					Title:       itm.Title,
+					Title:       title,
 					URL:         itm.Link,
 					Description: desc,
 					Color:       color,
@@ -272,6 +294,13 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 					},
 				}
 
+				if itm.Author != "" {
+					embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+						Name:   "Author",
+						Value:  itm.Author,
+						Inline: true,
+					})
+				}
 				if len(itm.Categories) > 0 {
 					embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 						Name:   "Categories",
@@ -297,14 +326,21 @@ func checkRSSFeedUpdates(s *discordgo.Session, cfg *Config) {
 					continue
 				}
 
+				log.Printf("RSS notifier: posted %q (%s) to channel %s", title, id, gCfg.RSSFeedsChannelID)
+
 				rssFeedMu.Lock()
 				curEntry := rssFeedCache.Guilds[guildID][feedURL]
 				curEntry.SeenGUIDs = append(curEntry.SeenGUIDs, id)
+				if len(curEntry.SeenGUIDs) > 300 {
+					curEntry.SeenGUIDs = curEntry.SeenGUIDs[len(curEntry.SeenGUIDs)-300:]
+				}
 				rssFeedCache.Guilds[guildID][feedURL] = curEntry
 				if err := saveRSSCache(); err != nil {
 					log.Printf("RSS notifier: persist seen item %s: %v", id, err)
 				}
 				rssFeedMu.Unlock()
+
+				time.Sleep(1 * time.Second)
 			}
 		}
 	}

@@ -362,10 +362,13 @@ func TestRSSNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
 		return &discordgo.Message{ID: "msg-1"}, nil
 	}
 
-	// 1. Initial run seeds the cache without sending announcements
+	// 1. Initial run delivers the latest item and records it in cache
 	checkRSSFeedUpdates(nil, &Config{})
-	if sentCount != 0 {
-		t.Fatalf("expected 0 messages on initial seed, got %d", sentCount)
+	if sentCount != 1 {
+		t.Fatalf("expected 1 message on initial delivery of latest item, got %d", sentCount)
+	}
+	if lastSent == nil || len(lastSent.Embeds) == 0 || lastSent.Embeds[0].Title != "First Entry" {
+		t.Fatalf("expected embed with title 'First Entry', got %#v", lastSent)
 	}
 	normalizedURL := "https://docs.discord.com/developers/change-log/rss.xml"
 	fState := rssFeedCache.Guilds[SunfireServerID][normalizedURL]
@@ -399,8 +402,8 @@ func TestRSSNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
 
 	currentRSS = secondRSS
 	checkRSSFeedUpdates(nil, &Config{})
-	if sentCount != 1 {
-		t.Fatalf("expected 1 message for new item, got %d", sentCount)
+	if sentCount != 2 {
+		t.Fatalf("expected 2 messages total after second item, got %d", sentCount)
 	}
 	if lastSent == nil || len(lastSent.Embeds) == 0 || lastSent.Embeds[0].Title != "Second Entry" {
 		t.Fatalf("expected embed with title 'Second Entry', got %#v", lastSent)
@@ -411,5 +414,11 @@ func TestRSSNotifierSeedsInitialAndDeliversNewEntries(t *testing.T) {
 	fState = rssFeedCache.Guilds[SunfireServerID][normalizedURL]
 	if len(fState.SeenGUIDs) != 2 || fState.SeenGUIDs[1] != "guid-2" {
 		t.Fatalf("cache not updated with new GUID: %#v", fState)
+	}
+
+	// 3. Subsequent poll with no new items does not deliver
+	checkRSSFeedUpdates(nil, &Config{})
+	if sentCount != 2 {
+		t.Fatalf("expected no new messages on duplicate check, got %d", sentCount)
 	}
 }
