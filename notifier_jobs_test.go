@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -95,6 +96,64 @@ func TestEvaluateJobMatch(t *testing.T) {
 				Company:     "SalesFlow",
 				Location:    "Remote (USA)",
 				Description: "Cold call clients and manage sales CRM pipelines.",
+			},
+			expectMatch: false,
+			minScore:    0,
+		},
+		{
+			name: "Buckeye Broadband IP Network Manager - Local NW Ohio",
+			job: JobPosting{
+				Title:       "Manager, IP Network Services",
+				Company:     "Buckeye Broadband",
+				Location:    "Northwood Offices",
+				Description: "Lead IP network operations, routing, disaster recovery, and infrastructure across Northwest Ohio.",
+			},
+			expectMatch: true,
+			minScore:    60,
+			mustHaveTag: "Local NW Ohio / Toledo Area",
+		},
+		{
+			name: "FIT Technologies Support Technician - Local Toledo",
+			job: JobPosting{
+				Title:       "Technical Support Services Technician I",
+				Company:     "FIT Technologies",
+				Location:    "Toledo, OH",
+				Description: "Provide tier 2 systems administration and network support for enterprise clients.",
+			},
+			expectMatch: true,
+			minScore:    50,
+			mustHaveTag: "Local NW Ohio / Toledo Area",
+		},
+		{
+			name: "Huntington Bank Mainframe Systems Engineer",
+			job: JobPosting{
+				Title:       "Senior Mainframe Systems/Platform Engineer",
+				Company:     "Huntington Bank",
+				Location:    "Columbus, OH",
+				Description: "Engineering leadership over systems platforms and infrastructure.",
+			},
+			expectMatch: true,
+			minScore:    50,
+			mustHaveTag: "Ohio Regional / Hybrid",
+		},
+		{
+			name: "Hospital Food Service Aide - Disqualify",
+			job: JobPosting{
+				Title:       "Dietary - Patient Food Service Aide",
+				Company:     "BVHS",
+				Location:    "Findlay, OH",
+				Description: "Prepare patient meals and deliver dietary trays.",
+			},
+			expectMatch: false,
+			minScore:    0,
+		},
+		{
+			name: "Branch Bank Teller - Disqualify",
+			job: JobPosting{
+				Title:       "Personal Banker Associate I",
+				Company:     "Fifth Third Bank",
+				Location:    "Toledo, OH",
+				Description: "Open customer checking accounts and process teller transactions.",
 			},
 			expectMatch: false,
 			minScore:    0,
@@ -330,6 +389,400 @@ func TestCheckJobUpdatesEndToEnd(t *testing.T) {
 	checkJobUpdates(nil, &Config{})
 	if len(sentMessages) != 0 {
 		t.Fatalf("expected 0 messages on second run with no new jobs, got %d", len(sentMessages))
+	}
+}
+
+func TestFetchPaylocityJobs(t *testing.T) {
+	ctx := context.Background()
+	htmlMock := `<!DOCTYPE html>
+<html>
+<head><title>Buckeye Broadband Careers</title></head>
+<body>
+<script>
+window.pageData = {
+  "Jobs": [
+    {
+      "JobId": 12345,
+      "JobTitle": "Manager, IP Network Services",
+      "Location": "Northwood Offices",
+      "Department": "Network Engineering",
+      "PublicJobDescription": "Oversee IP networking, infrastructure, routing protocols, and disaster recovery.",
+      "PublishedDate": "2026-11-01T10:00:00"
+    }
+  ]
+};
+</script>
+</body>
+</html>`
+
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return notifierResponse(req, http.StatusOK, htmlMock), nil
+		}),
+	}
+
+	jobs, err := fetchPaylocityJobs(ctx, client, "https://recruiting.paylocity.com/recruiting/jobs/All/b3d942e8-fa79-42c5-8d17-e7c7cae38ccc/Buckeye-Broadband")
+	if err != nil {
+		t.Fatalf("fetchPaylocityJobs failed: %v", err)
+	}
+
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	j := jobs[0]
+	if j.ID != "paylocity-12345" {
+		t.Errorf("expected ID paylocity-12345, got %s", j.ID)
+	}
+	if j.Title != "Manager, IP Network Services" {
+		t.Errorf("expected title Manager, IP Network Services, got %s", j.Title)
+	}
+	if j.Company != "Buckeye Broadband" {
+		t.Errorf("expected Buckeye Broadband, got %s", j.Company)
+	}
+	if j.URL != "https://recruiting.paylocity.com/recruiting/jobs/Details/12345" {
+		t.Errorf("unexpected URL: %s", j.URL)
+	}
+	if j.Location != "Northwood Offices" {
+		t.Errorf("expected Northwood Offices, got %s", j.Location)
+	}
+	if len(j.Tags) == 0 || j.Tags[0] != "Network Engineering" {
+		t.Errorf("expected tag Network Engineering, got %v", j.Tags)
+	}
+}
+
+func TestFetchWorkdayJobs(t *testing.T) {
+	ctx := context.Background()
+	jsonMock := `{
+  "total": 1,
+  "jobPostings": [
+    {
+      "title": "Director of IT Operations",
+      "externalPath": "/job/Toledo-OH/Director-IT_R999",
+      "locationsText": "Toledo, OH",
+      "postedOn": "Posted 1 Day Ago",
+      "bulletFields": ["Full time", "Leadership", "R999"]
+    }
+  ]
+}`
+
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return notifierResponse(req, http.StatusOK, jsonMock), nil
+		}),
+	}
+
+	jobs, err := fetchWorkdayJobs(ctx, client, "promedica", "External_Careers", "wd12", "ProMedica")
+	if err != nil {
+		t.Fatalf("fetchWorkdayJobs failed: %v", err)
+	}
+
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	j := jobs[0]
+	if j.ID != "workday-promedica-Toledo-OH/Director-IT_R999" {
+		t.Errorf("unexpected ID: %s", j.ID)
+	}
+	if j.Title != "Director of IT Operations" {
+		t.Errorf("unexpected title: %s", j.Title)
+	}
+	if j.Company != "ProMedica" {
+		t.Errorf("unexpected company: %s", j.Company)
+	}
+	if j.Location != "Toledo, OH" {
+		t.Errorf("unexpected location: %s", j.Location)
+	}
+	if !strings.Contains(j.URL, "promedica.wd12.myworkdayjobs.com/External_Careers/job/Toledo-OH/Director-IT_R999") {
+		t.Errorf("unexpected URL: %s", j.URL)
+	}
+}
+
+func TestFetchBambooHRJobs(t *testing.T) {
+	ctx := context.Background()
+	jsonMock := `{
+  "result": [
+    {
+      "id": "cnwr-501",
+      "jobOpeningName": "Tier 2 Systems Administrator",
+      "departmentLabel": "Technical Operations",
+      "jobType": "Full-Time",
+      "location": {
+        "city": "Toledo",
+        "state": "OH"
+      }
+    }
+  ]
+}`
+
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return notifierResponse(req, http.StatusOK, jsonMock), nil
+		}),
+	}
+
+	jobs, err := fetchBambooHRJobs(ctx, client, "cnwr", "CNWR Managed IT Services")
+	if err != nil {
+		t.Fatalf("fetchBambooHRJobs failed: %v", err)
+	}
+
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	j := jobs[0]
+	if j.ID != "bamboo-cnwr-cnwr-501" {
+		t.Errorf("unexpected ID: %s", j.ID)
+	}
+	if j.Title != "Tier 2 Systems Administrator" {
+		t.Errorf("unexpected title: %s", j.Title)
+	}
+	if j.Location != "Toledo, OH" {
+		t.Errorf("unexpected location: %s", j.Location)
+	}
+	if j.URL != "https://cnwr.bamboohr.com/careers/cnwr-501" {
+		t.Errorf("unexpected URL: %s", j.URL)
+	}
+}
+
+func TestFetchADPJobs(t *testing.T) {
+	ctx := context.Background()
+	jsonMock := `{
+  "jobRequisitions": [
+    {
+      "itemID": "adp-900",
+      "requisitionTitle": "Technical Support Services Technician I",
+      "requisitionDescription": "Provide systems and desktop infrastructure support in NW Ohio.",
+      "requisitionLocations": [
+        {
+          "nameCode": { "shortName": "Toledo, OH" },
+          "address": {
+            "cityName": "Toledo",
+            "countrySubdivisionLevel1": { "codeValue": "OH" }
+          }
+        }
+      ]
+    }
+  ]
+}`
+
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return notifierResponse(req, http.StatusOK, jsonMock), nil
+		}),
+	}
+
+	jobs, err := fetchADPJobs(ctx, client, "cid123", "ccId123", "FIT Technologies")
+	if err != nil {
+		t.Fatalf("fetchADPJobs failed: %v", err)
+	}
+
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	j := jobs[0]
+	if j.ID != "adp-adp-900" {
+		t.Errorf("unexpected ID: %s", j.ID)
+	}
+	if j.Title != "Technical Support Services Technician I" {
+		t.Errorf("unexpected title: %s", j.Title)
+	}
+	if j.Location != "Toledo, OH" {
+		t.Errorf("unexpected location: %s", j.Location)
+	}
+	if !strings.Contains(j.URL, "jobId=adp-900") {
+		t.Errorf("unexpected URL: %s", j.URL)
+	}
+}
+
+func TestFetchTaleoJobs(t *testing.T) {
+	ctx := context.Background()
+	htmlMock := `<!DOCTYPE html>
+<html>
+<body>
+<table>
+  <tr>
+    <td><a href="/phg02/ats/careers/v2/viewRequisition?org=BVHS&cws=40&rid=3001">Clinical Systems Engineer</a></td>
+    <td>Information Technology</td>
+  </tr>
+</table>
+</body>
+</html>`
+
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return notifierResponse(req, http.StatusOK, htmlMock), nil
+		}),
+	}
+
+	jobs, err := fetchTaleoJobs(ctx, client, "https://phg.tbe.taleo.net/phg02/ats/careers/v2/searchResults?org=BVHS&cws=40", "Blanchard Valley Health System")
+	if err != nil {
+		t.Fatalf("fetchTaleoJobs failed: %v", err)
+	}
+
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	j := jobs[0]
+	if j.ID != "taleo-bvhs-3001" {
+		t.Errorf("unexpected ID: %s", j.ID)
+	}
+	if j.Title != "Clinical Systems Engineer" {
+		t.Errorf("unexpected title: %s", j.Title)
+	}
+	if j.Company != "Blanchard Valley Health System" {
+		t.Errorf("unexpected company: %s", j.Company)
+	}
+	if j.URL != "https://phg.tbe.taleo.net/phg02/ats/careers/v2/viewRequisition?org=BVHS&cws=40&rid=3001" {
+		t.Errorf("unexpected URL: %s", j.URL)
+	}
+}
+
+func TestScrapeCustomJobURLRouting(t *testing.T) {
+	ctx := context.Background()
+	client := &http.Client{
+		Transport: notifierRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			urlStr := req.URL.String()
+			if strings.Contains(urlStr, "paylocity.com") {
+				return notifierResponse(req, http.StatusOK, `window.pageData = {"Jobs": [{"JobId": 1, "JobTitle": "NOC Analyst", "Location": "Northwood", "JobDescription": "NOC support"}]};`), nil
+			}
+			if strings.Contains(urlStr, "myworkdayjobs.com") {
+				return notifierResponse(req, http.StatusOK, `{"total": 1, "jobPostings": [{"title": "IT Systems Architect", "externalPath": "/job/123", "locationsText": "Remote, USA"}]}`), nil
+			}
+			if strings.Contains(urlStr, "bamboohr.com") {
+				return notifierResponse(req, http.StatusOK, `{"result": [{"id": 2, "jobOpeningName": "Network Admin", "location": {"city": "Toledo", "state": "OH"}}]}`), nil
+			}
+			if strings.Contains(urlStr, "adp.com") {
+				return notifierResponse(req, http.StatusOK, `{"jobRequisitions": [{"itemID": "3", "requisitionTitle": "Cloud Engineer", "requisitionLocations": [{"address": {"cityName": "Cleveland", "countrySubdivisionLevel1": {"codeValue": "OH"}}}]}]}`), nil
+			}
+			if strings.Contains(urlStr, "taleo.net") {
+				return notifierResponse(req, http.StatusOK, `<a href="/viewRequisition?org=BVHS&cws=40&rid=4">IT Support Tech</a>`), nil
+			}
+			return notifierResponse(req, http.StatusOK, `{"jobs": []}`), nil
+		}),
+	}
+
+	targets := []string{
+		"https://recruiting.paylocity.com/recruiting/jobs/All/b3d942e8-fa79-42c5-8d17-e7c7cae38ccc/Buckeye-Broadband",
+		"https://www.promedica.org/promedicacareers",
+		"https://www.53.com/content/fifth-third/en/careers.html",
+		"https://www.key.com/about/careers.html",
+		"https://www.huntington.com/careers",
+		"https://jobs.cvshealth.com/us/en/home",
+		"https://cnwr.com/about/employment",
+		"https://www.fittechnologies.com/careers",
+		"https://bvhealthsystem.org/careers",
+	}
+
+	for _, u := range targets {
+		jobs, err := scrapeCustomJobURL(ctx, client, u)
+		if err != nil {
+			t.Errorf("scrapeCustomJobURL(%q) returned error: %v", u, err)
+		}
+		if len(jobs) == 0 {
+			t.Errorf("scrapeCustomJobURL(%q) returned 0 jobs", u)
+		}
+	}
+}
+
+func TestCustomURLJobNotificationEndToEnd(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "sunfire_job_custom_e2e_*")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldPath := jobCachePath
+	jobCachePath = filepath.Join(tmpDir, "testJobCache.json")
+	defer func() {
+		jobCachePath = oldPath
+	}()
+
+	jobCacheMu.Lock()
+	jobCache.Initialized = false
+	jobCache.SeenJobs = make(map[string]string)
+	jobCacheMu.Unlock()
+
+	settings := &GuildSettings{
+		JobsEnabled:   true,
+		JobsChannelID: "test-jobs-channel",
+		JobsURLs: []string{
+			"https://recruiting.paylocity.com/recruiting/jobs/All/b3d942e8-fa79-42c5-8d17-e7c7cae38ccc/Buckeye-Broadband",
+		},
+	}
+
+	paylocityHTML := `<!DOCTYPE html><html><body><script>
+window.pageData = {
+  "Jobs": [
+    {
+      "JobId": 8888,
+      "JobTitle": "Manager, IP Network Services",
+      "Location": "Northwood Offices",
+      "Department": "Network Operations",
+      "PublicJobDescription": "Lead enterprise IP network systems, Hyper-V, Windows Server, and disaster recovery.",
+      "PublishedDate": "2026-11-01T12:00:00"
+    }
+  ]
+};
+</script></body></html>`
+
+	setNotifierTestState(t, settings, func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.String(), "paylocity.com") {
+			return notifierResponse(req, http.StatusOK, paylocityHTML), nil
+		}
+		if strings.Contains(req.URL.String(), "weworkremotely.com") {
+			return notifierResponse(req, http.StatusOK, `<rss version="2.0"><channel><title>WWR</title></channel></rss>`), nil
+		}
+		if strings.Contains(req.URL.String(), "jobicy.com") {
+			return notifierResponse(req, http.StatusOK, `{"jobs": []}`), nil
+		}
+		if strings.Contains(req.URL.String(), "remotive.com") {
+			return notifierResponse(req, http.StatusOK, `{"jobs": []}`), nil
+		}
+		if strings.Contains(req.URL.String(), "remoteok.com") {
+			return notifierResponse(req, http.StatusOK, `[{"legal": "terms"}]`), nil
+		}
+		return notifierResponse(req, http.StatusOK, ""), nil
+	})
+
+	var sentMessages []*discordgo.MessageSend
+	sendNotifierComplex = func(_ *discordgo.Session, channelID string, message *discordgo.MessageSend) (*discordgo.Message, error) {
+		if channelID != "test-jobs-channel" {
+			t.Fatalf("unexpected channel ID: %s", channelID)
+		}
+		sentMessages = append(sentMessages, message)
+		return &discordgo.Message{ID: "msg-custom-test"}, nil
+	}
+
+	checkJobUpdates(nil, &Config{
+		Guild: *settings,
+	})
+
+	if len(sentMessages) != 1 {
+		t.Fatalf("expected 1 message posted on initial run, got %d", len(sentMessages))
+	}
+	if len(sentMessages[0].Embeds) == 0 {
+		t.Fatal("expected embed in sent message")
+	}
+
+	embed := sentMessages[0].Embeds[0]
+	if !strings.Contains(embed.Title, "Manager, IP Network Services") {
+		t.Errorf("expected Title to contain Manager, IP Network Services, got: %s", embed.Title)
+	}
+
+	// Verify local NW Ohio highlight is included
+	foundLocal := false
+	for _, f := range embed.Fields {
+		if strings.Contains(f.Value, "Local NW Ohio") {
+			foundLocal = true
+			break
+		}
+	}
+	if !foundLocal {
+		t.Errorf("expected Local NW Ohio highlight in embed fields: %+v", embed.Fields)
 	}
 }
 

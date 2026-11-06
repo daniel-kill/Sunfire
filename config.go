@@ -71,6 +71,7 @@ type Config struct {
 	MessageLoggingEnabled         bool          `json:"MESSAGE_LOGGING_ENABLED"`
 	RSSFeedsPollIntervalMs        int           `json:"RSS_FEEDS_POLL_INTERVAL"`
 	JobsPollIntervalMs            int           `json:"JOBS_POLL_INTERVAL"`
+	JobsURLs                      []string      `json:"jobsUrls,omitempty"`
 	Scrape                        ScrapeConfig  `json:"scrape"`
 	Guild                         GuildSettings `json:"guild"`
 }

@@ -48,6 +48,7 @@ type GuildSettings struct {
 	JobsChannelID                string                 `json:"jobsChannelId"`
 	JobsRoleID                   *string                `json:"jobsRoleId"`
 	JobsIntervalHours            int                    `json:"jobsIntervalHours"`
+	JobsURLs                     []string               `json:"jobsUrls"`
 }
 
 var (

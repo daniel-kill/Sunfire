@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -106,13 +107,10 @@ func cleanHTMLDescription(raw string, maxLen int) string {
 	return cleaned
 }
 
-// isUSRemoteEligible checks if a location is eligible for a US-based remote candidate.
-func isUSRemoteEligible(loc string) bool {
+// isLocationEligible checks if a location is acceptable (US remote, nationwide, or NW Ohio / Ohio local/hybrid).
+func isLocationEligible(loc string) bool {
 	l := strings.ToLower(strings.TrimSpace(loc))
-	if l == "" || l == "remote" || l == "anywhere" || l == "worldwide" || l == "global" {
-		return true
-	}
-	if strings.Contains(l, "us") || strings.Contains(l, "usa") || strings.Contains(l, "united states") || strings.Contains(l, "north america") {
+	if l == "" || l == "remote" || l == "anywhere" || l == "worldwide" || l == "global" || l == "virtual" {
 		return true
 	}
 
@@ -121,7 +119,7 @@ func isUSRemoteEligible(loc string) bool {
 		"uk only", "united kingdom only", "europe only", "eu only", "emea only",
 		"germany only", "canada only", "latam only", "apac only", "asia only",
 		"australia only", "india only", "philippines only", "brazil only",
-		"singapore only", "spain only", "france only", "poland only",
+		"singapore only", "spain only", "france only", "poland only", "ireland only",
 	}
 	for _, f := range foreignOnly {
 		if strings.Contains(l, f) {
@@ -129,8 +127,12 @@ func isUSRemoteEligible(loc string) bool {
 		}
 	}
 
-	// If it doesn't forbid US and has generic remote indicators
 	return true
+}
+
+// isUSRemoteEligible maintains backward compatibility with existing tests.
+func isUSRemoteEligible(loc string) bool {
+	return isLocationEligible(loc)
 }
 
 // evaluateJobMatch scores a job against Daniel Kill's resume and qualification profile.
@@ -138,22 +140,55 @@ func evaluateJobMatch(job JobPosting) (score int, highlights []string, matches b
 	titleLower := strings.ToLower(job.Title)
 	descLower := strings.ToLower(job.Description)
 	tagsLower := strings.ToLower(strings.Join(job.Tags, " "))
-	fullText := titleLower + " " + descLower + " " + tagsLower
+	locLower := strings.ToLower(job.Location)
+	fullText := titleLower + " " + descLower + " " + tagsLower + " " + locLower
 
-	// Location check: must be US remote compatible
-	if !isUSRemoteEligible(job.Location) {
+	// Location check: must be eligible (US remote, nationwide, or local Ohio)
+	if !isLocationEligible(job.Location) {
 		return 0, nil, false
 	}
 
-	// Disqualifiers: intern, junior, or strictly non-technical roles
-	disqualifiers := []string{
+	// Technical keywords indicating candidate IT/software/systems roles
+	isTechRole := strings.Contains(titleLower, "engineer") ||
+		strings.Contains(titleLower, "architect") ||
+		strings.Contains(titleLower, "developer") ||
+		strings.Contains(titleLower, "manager") ||
+		strings.Contains(titleLower, "director") ||
+		strings.Contains(titleLower, "devops") ||
+		strings.Contains(titleLower, "sysadmin") ||
+		strings.Contains(titleLower, "systems") ||
+		strings.Contains(titleLower, "network") ||
+		strings.Contains(titleLower, "technician") ||
+		strings.Contains(titleLower, "analyst") ||
+		strings.Contains(titleLower, "support") ||
+		strings.Contains(titleLower, "solutions") ||
+		strings.Contains(titleLower, "infrastructure") ||
+		strings.Contains(titleLower, "technology") ||
+		strings.Contains(titleLower, "information technology") ||
+		strings.Contains(titleLower, "it ") ||
+		strings.HasPrefix(titleLower, "it ") ||
+		strings.HasSuffix(titleLower, " it") ||
+		strings.Contains(titleLower, "brainiac")
+
+	// Strict Disqualifiers: intern, junior, clinical medical, branch banking tellers, etc.
+	strictDisqualifiers := []string{
 		"intern", "internship", "junior developer", "junior engineer",
 		"account executive", "sales development", "customer service rep",
 		"copywriter", "graphic designer", "paralegal", "receptionist",
+		"registered nurse", "nurse", "nursing", "physician", "surgeon",
+		"pharmacist", "pharmacy tech", "patient care", "dietary", "dental",
+		"phlebotomist", "radiology", "respiratory", "occupational therapist",
+		"medical assistant", "audiolog", "lactation", "food service",
+		"personal banker", "teller", "branch banker", "mortgage loan",
 	}
-	for _, dq := range disqualifiers {
+	for _, dq := range strictDisqualifiers {
 		if strings.Contains(titleLower, dq) {
-			return 0, nil, false
+			if strings.Contains(titleLower, "intern") || strings.Contains(titleLower, "nurse") ||
+				strings.Contains(titleLower, "teller") || strings.Contains(titleLower, "aide") ||
+				strings.Contains(titleLower, "food service") || strings.Contains(titleLower, "dietary") ||
+				!isTechRole {
+				return 0, nil, false
+			}
 		}
 	}
 
@@ -165,7 +200,13 @@ func evaluateJobMatch(job JobPosting) (score int, highlights []string, matches b
 		strings.Contains(titleLower, "systems manager") ||
 		strings.Contains(titleLower, "engineering manager") ||
 		strings.Contains(titleLower, "head of it") ||
-		strings.Contains(titleLower, "head of infrastructure") {
+		strings.Contains(titleLower, "head of infrastructure") ||
+		strings.Contains(titleLower, "technical delivery manager") ||
+		strings.Contains(titleLower, "it operations manager") ||
+		strings.Contains(titleLower, "technology manager") ||
+		strings.Contains(titleLower, "network manager") ||
+		strings.Contains(titleLower, "manager, ip network") ||
+		strings.Contains(titleLower, "noc manager") {
 		score += 45
 		highlights = append(highlights, "IT / Infrastructure Leadership")
 	}
@@ -180,7 +221,14 @@ func evaluateJobMatch(job JobPosting) (score int, highlights []string, matches b
 		strings.Contains(titleLower, "site reliability") ||
 		strings.Contains(titleLower, "sre") ||
 		strings.Contains(titleLower, "cloud engineer") ||
-		strings.Contains(titleLower, "cloud architect") {
+		strings.Contains(titleLower, "cloud architect") ||
+		strings.Contains(titleLower, "solutions engineer") ||
+		strings.Contains(titleLower, "network engineer") ||
+		strings.Contains(titleLower, "systems analyst") ||
+		strings.Contains(titleLower, "technical support") ||
+		strings.Contains(titleLower, "help desk") ||
+		strings.Contains(titleLower, "service desk") ||
+		strings.Contains(titleLower, "brainiac") {
 		score += 35
 		highlights = append(highlights, "DevOps / Infrastructure Engineering")
 	}
@@ -234,6 +282,41 @@ func evaluateJobMatch(job JobPosting) (score int, highlights []string, matches b
 	if strings.Contains(titleLower, "senior") || strings.Contains(titleLower, "lead") || strings.Contains(titleLower, "staff") || strings.Contains(titleLower, "principal") || strings.Contains(titleLower, "architect") {
 		score += 15
 		highlights = append(highlights, "Senior / Lead Tier")
+	}
+
+	// 11. Geographic match bonuses
+	if strings.Contains(locLower, "toledo") ||
+		strings.Contains(locLower, "walbridge") ||
+		strings.Contains(locLower, "perrysburg") ||
+		strings.Contains(locLower, "northwood") ||
+		strings.Contains(locLower, "findlay") ||
+		strings.Contains(locLower, "bowling green") ||
+		strings.Contains(locLower, "sylvania") ||
+		strings.Contains(locLower, "maumee") ||
+		strings.Contains(locLower, "fremont") ||
+		strings.Contains(locLower, "oregon, oh") ||
+		strings.Contains(locLower, "lucas county") ||
+		strings.Contains(locLower, "wood county") ||
+		strings.Contains(locLower, "hancock county") {
+		score += 20
+		highlights = append(highlights, "Local NW Ohio / Toledo Area")
+	} else if strings.Contains(locLower, "cleveland") ||
+		strings.Contains(locLower, "columbus") ||
+		strings.Contains(locLower, "cincinnati") ||
+		strings.Contains(locLower, "akron") ||
+		strings.Contains(locLower, "ohio") ||
+		strings.Contains(locLower, " oh") ||
+		strings.Contains(locLower, ", oh") ||
+		strings.Contains(locLower, "oh-") {
+		score += 10
+		highlights = append(highlights, "Ohio Regional / Hybrid")
+	} else if strings.Contains(locLower, "remote") ||
+		strings.Contains(locLower, "anywhere") ||
+		strings.Contains(locLower, "worldwide") ||
+		strings.Contains(locLower, "global") ||
+		strings.Contains(locLower, "virtual") {
+		score += 10
+		highlights = append(highlights, "100% US Remote")
 	}
 
 	// Penalize purely unrelated mobile or frontend without backend/devops overlap
@@ -604,10 +687,784 @@ func fetchRemoteOKJobs(ctx context.Context, client *http.Client) ([]JobPosting, 
 }
 
 // ----------------------------------------------------------------------------
+// Custom URL Scrapers & Multi-ATS Dispatcher
+// ----------------------------------------------------------------------------
+
+// fetchCustomURLJobs concurrently scrapes each URL in urls using appropriate ATS/HTML scrapers.
+func fetchCustomURLJobs(ctx context.Context, client *http.Client, urls []string) []JobPosting {
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		results []JobPosting
+	)
+
+	// Limit concurrent scraping to 5 workers
+	sem := make(chan struct{}, 5)
+
+	for _, targetURL := range urls {
+		targetURL := strings.TrimSpace(targetURL)
+		if targetURL == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(u string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			jobs, err := scrapeCustomJobURL(ctx, client, u)
+			if err != nil {
+				log.Printf("Job notifier: scrape custom URL %s error: %v", u, err)
+				return
+			}
+			if len(jobs) > 0 {
+				mu.Lock()
+				results = append(results, jobs...)
+				mu.Unlock()
+				log.Printf("Job notifier: scraped %d jobs from %s", len(jobs), u)
+			}
+		}(targetURL)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// scrapeCustomJobURL dispatches scraping based on ATS / domain characteristics.
+func scrapeCustomJobURL(ctx context.Context, client *http.Client, targetURL string) ([]JobPosting, error) {
+	lowerURL := strings.ToLower(targetURL)
+
+	// 1. Buckeye Broadband / Paylocity
+	if strings.Contains(lowerURL, "recruiting.paylocity.com") {
+		return fetchPaylocityJobs(ctx, client, targetURL)
+	}
+
+	// 2. ProMedica (Workday wd12)
+	if strings.Contains(lowerURL, "promedica.org") || strings.Contains(lowerURL, "promedica.wd12.myworkdayjobs.com") {
+		return fetchWorkdayJobs(ctx, client, "promedica", "External_Careers", "wd12", "ProMedica")
+	}
+
+	// 3. Fifth Third Bank (Workday wd5)
+	if strings.Contains(lowerURL, "53.com") || strings.Contains(lowerURL, "fifththird.wd5.myworkdayjobs.com") {
+		return fetchWorkdayJobs(ctx, client, "fifththird", "53careers", "wd5", "Fifth Third Bank")
+	}
+
+	// 4. KeyBank (Workday wd5)
+	if strings.Contains(lowerURL, "key.com") || strings.Contains(lowerURL, "keybank.wd5.myworkdayjobs.com") {
+		return fetchWorkdayJobs(ctx, client, "keybank", "External_Career_Site", "wd5", "KeyBank")
+	}
+
+	// 5. Huntington Bank (Workday wd12)
+	if strings.Contains(lowerURL, "huntington.com") || strings.Contains(lowerURL, "huntington.wd12.myworkdayjobs.com") {
+		return fetchWorkdayJobs(ctx, client, "huntington", "HNBcareers", "wd12", "Huntington Bank")
+	}
+
+	// 6. CVS Health (Workday wd1)
+	if strings.Contains(lowerURL, "cvshealth.com") {
+		return fetchWorkdayJobs(ctx, client, "cvshealth", "CVS_Health_Careers", "wd1", "CVS Health")
+	}
+
+	// 7. CNWR (BambooHR)
+	if strings.Contains(lowerURL, "cnwr.com") || strings.Contains(lowerURL, "cnwr.bamboohr.com") {
+		return fetchBambooHRJobs(ctx, client, "cnwr", "CNWR Managed IT Services")
+	}
+
+	// 8. FIT Technologies (ADP Workforce Now)
+	if strings.Contains(lowerURL, "fittechnologies.com") || strings.Contains(lowerURL, "4116d4da-3047-443d-9816-3bf46f7aacbd") {
+		return fetchADPJobs(ctx, client, "4116d4da-3047-443d-9816-3bf46f7aacbd", "19000101_000001", "FIT Technologies")
+	}
+
+	// 9. Blanchard Valley Health System (Taleo)
+	if strings.Contains(lowerURL, "bvhealthsystem.org") || strings.Contains(lowerURL, "phg.tbe.taleo.net") {
+		taleoURL := "https://phg.tbe.taleo.net/phg02/ats/careers/v2/searchResults?org=BVHS&cws=40"
+		return fetchTaleoJobs(ctx, client, taleoURL, "Blanchard Valley Health System")
+	}
+
+	// 10. Generic Workday URL match (e.g. https://tenant.wdX.myworkdayjobs.com/site)
+	wdRegex := regexp.MustCompile(`https?://([a-zA-Z0-9_\-]+)\.(wd[0-9]+)\.myworkdayjobs\.com/([a-zA-Z0-9_\-]+)`)
+	if m := wdRegex.FindStringSubmatch(targetURL); len(m) == 4 {
+		return fetchWorkdayJobs(ctx, client, m[1], m[3], m[2], strings.Title(m[1]))
+	}
+
+	// 11. Generic BambooHR URL match (e.g. https://subdomain.bamboohr.com/careers)
+	bambooRegex := regexp.MustCompile(`https?://([a-zA-Z0-9_\-]+)\.bamboohr\.com`)
+	if m := bambooRegex.FindStringSubmatch(targetURL); len(m) == 2 {
+		return fetchBambooHRJobs(ctx, client, m[1], strings.Title(m[1]))
+	}
+
+	// 12. Generic RSS / XML feed
+	if strings.HasSuffix(lowerURL, ".rss") || strings.HasSuffix(lowerURL, ".xml") {
+		return fetchRSSJobs(ctx, client, targetURL, "RSS Job Feed")
+	}
+
+	// 13. Generic Webpage / JSON-LD / HTML Fallback
+	return fetchGenericWebpageJobs(ctx, client, targetURL)
+}
+
+// ----------------------------------------------------------------------------
+// Paylocity Scraper
+// ----------------------------------------------------------------------------
+
+type paylocityData struct {
+	Jobs []struct {
+		JobID                interface{} `json:"JobId"`
+		JobTitle             string      `json:"JobTitle"`
+		Location             string      `json:"Location"`
+		Department           string      `json:"Department"`
+		PublicJobDescription string      `json:"PublicJobDescription"`
+		JobDescription       string      `json:"JobDescription"`
+		PublishedDate        string      `json:"PublishedDate"`
+	} `json:"Jobs"`
+}
+
+func fetchPaylocityJobs(ctx context.Context, client *http.Client, paylocityURL string) ([]JobPosting, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, paylocityURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "SunfireBot/1.0 (daniel@danielkill.online; career-matcher)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("paylocity HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	var pData paylocityData
+	idx := bytes.Index(body, []byte("window.pageData = "))
+	if idx == -1 {
+		idx = bytes.Index(body, []byte("window.pageData="))
+	}
+	if idx == -1 {
+		return nil, fmt.Errorf("window.pageData not found in Paylocity HTML")
+	}
+
+	start := idx + bytes.IndexByte(body[idx:], '=') + 1
+	for start < len(body) && (body[start] == ' ' || body[start] == '\t' || body[start] == '\r' || body[start] == '\n') {
+		start++
+	}
+	end := bytes.Index(body[start:], []byte("};"))
+	if end == -1 {
+		return nil, fmt.Errorf("terminating '};' not found for Paylocity pageData")
+	}
+
+	rawJSON := body[start : start+end+1]
+	if err := json.Unmarshal(rawJSON, &pData); err != nil {
+		return nil, fmt.Errorf("unmarshaling paylocity pageData: %w", err)
+	}
+
+	company := "Buckeye Broadband"
+	if strings.Contains(paylocityURL, "Buckeye-Broadband") {
+		company = "Buckeye Broadband"
+	}
+
+	var results []JobPosting
+	for _, j := range pData.Jobs {
+		jobID := fmt.Sprintf("%v", j.JobID)
+		if jobID == "" || j.JobTitle == "" {
+			continue
+		}
+
+		desc := j.PublicJobDescription
+		if desc == "" {
+			desc = j.JobDescription
+		}
+
+		loc := j.Location
+		if loc == "" {
+			loc = "Toledo / Northwood, OH"
+		}
+
+		pubTime, _ := time.Parse("2006-01-02T15:04:05", j.PublishedDate)
+		if pubTime.IsZero() {
+			pubTime = time.Now()
+		}
+
+		detailURL := fmt.Sprintf("https://recruiting.paylocity.com/recruiting/jobs/Details/%s", jobID)
+
+		var tags []string
+		if j.Department != "" {
+			tags = append(tags, j.Department)
+		}
+
+		results = append(results, JobPosting{
+			ID:          fmt.Sprintf("paylocity-%s", jobID),
+			Source:      company + " (Paylocity)",
+			Title:       j.JobTitle,
+			Company:     company,
+			URL:         detailURL,
+			Location:    loc,
+			Salary:      "Disclosed in listing",
+			Description: cleanHTMLDescription(desc, 400),
+			PublishedAt: pubTime,
+			Tags:        tags,
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// Workday CXS Scraper
+// ----------------------------------------------------------------------------
+
+type workdayPayload struct {
+	AppliedFacets map[string]interface{} `json:"appliedFacets"`
+	Limit         int                    `json:"limit"`
+	Offset        int                    `json:"offset"`
+	SearchText    string                 `json:"searchText"`
+}
+
+type workdayResponse struct {
+	Total       int `json:"total"`
+	JobPostings []struct {
+		Title         string   `json:"title"`
+		ExternalPath  string   `json:"externalPath"`
+		LocationsText string   `json:"locationsText"`
+		PostedOn      string   `json:"postedOn"`
+		BulletFields  []string `json:"bulletFields"`
+	} `json:"jobPostings"`
+}
+
+func fetchWorkdayJobs(ctx context.Context, client *http.Client, tenant, site, wd, company string) ([]JobPosting, error) {
+	endpoint := fmt.Sprintf("https://%s.%s.myworkdayjobs.com/wday/cxs/%s/%s/jobs", tenant, wd, tenant, site)
+
+	queries := []string{""}
+	if company == "CVS Health" || company == "Fifth Third Bank" || company == "Huntington Bank" {
+		queries = append(queries, "technology", "engineer")
+	}
+
+	seenPaths := make(map[string]bool)
+	var results []JobPosting
+
+	for _, q := range queries {
+		payloadObj := workdayPayload{
+			AppliedFacets: map[string]interface{}{},
+			Limit:         50,
+			Offset:        0,
+			SearchText:    q,
+		}
+		pBytes, err := json.Marshal(payloadObj)
+		if err != nil {
+			continue
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(pBytes))
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "SunfireBot/1.0 (daniel@danielkill.online; career-matcher)")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || err != nil {
+			continue
+		}
+
+		var wdResp workdayResponse
+		if err := json.Unmarshal(body, &wdResp); err != nil {
+			continue
+		}
+
+		for _, p := range wdResp.JobPostings {
+			if p.ExternalPath == "" || seenPaths[p.ExternalPath] {
+				continue
+			}
+			seenPaths[p.ExternalPath] = true
+
+			jobURL := fmt.Sprintf("https://%s.%s.myworkdayjobs.com/%s%s", tenant, wd, site, p.ExternalPath)
+			jobID := fmt.Sprintf("workday-%s-%s", tenant, strings.TrimPrefix(p.ExternalPath, "/job/"))
+
+			loc := p.LocationsText
+			if loc == "" {
+				loc = "United States"
+			}
+
+			desc := strings.Join(p.BulletFields, " • ")
+			if p.PostedOn != "" {
+				desc = p.PostedOn + " • " + desc
+			}
+
+			results = append(results, JobPosting{
+				ID:          jobID,
+				Source:      company + " (Workday)",
+				Title:       p.Title,
+				Company:     company,
+				URL:         jobURL,
+				Location:    loc,
+				Salary:      "Disclosed in listing",
+				Description: cleanHTMLDescription(desc, 400),
+				PublishedAt: time.Now(),
+				Tags:        p.BulletFields,
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// BambooHR Scraper
+// ----------------------------------------------------------------------------
+
+type bambooResponse struct {
+	Result []struct {
+		ID              interface{} `json:"id"`
+		JobOpeningName  string      `json:"jobOpeningName"`
+		DepartmentLabel string      `json:"departmentLabel"`
+		JobType         string      `json:"jobType"`
+		Location        struct {
+			City  string `json:"city"`
+			State string `json:"state"`
+		} `json:"location"`
+	} `json:"result"`
+}
+
+func fetchBambooHRJobs(ctx context.Context, client *http.Client, subdomain, company string) ([]JobPosting, error) {
+	url := fmt.Sprintf("https://%s.bamboohr.com/careers/list", subdomain)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "SunfireBot/1.0 (daniel@danielkill.online; career-matcher)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bamboohr HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	var bResp bambooResponse
+	if err := json.Unmarshal(body, &bResp); err != nil {
+		return nil, fmt.Errorf("unmarshaling bamboohr response: %w", err)
+	}
+
+	var results []JobPosting
+	for _, itm := range bResp.Result {
+		idStr := fmt.Sprintf("%v", itm.ID)
+		if idStr == "" || itm.JobOpeningName == "" {
+			continue
+		}
+
+		loc := fmt.Sprintf("%s, %s", itm.Location.City, itm.Location.State)
+		if itm.Location.City == "" && itm.Location.State == "" {
+			loc = "Toledo, OH"
+		}
+
+		detailURL := fmt.Sprintf("https://%s.bamboohr.com/careers/%s", subdomain, idStr)
+
+		var tags []string
+		if itm.DepartmentLabel != "" {
+			tags = append(tags, itm.DepartmentLabel)
+		}
+		if itm.JobType != "" {
+			tags = append(tags, itm.JobType)
+		}
+
+		results = append(results, JobPosting{
+			ID:          fmt.Sprintf("bamboo-%s-%s", subdomain, idStr),
+			Source:      company + " (BambooHR)",
+			Title:       itm.JobOpeningName,
+			Company:     company,
+			URL:         detailURL,
+			Location:    loc,
+			Salary:      "Disclosed in listing",
+			Description: fmt.Sprintf("%s • %s", itm.DepartmentLabel, itm.JobType),
+			PublishedAt: time.Now(),
+			Tags:        tags,
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// ADP Workforce Now Scraper
+// ----------------------------------------------------------------------------
+
+type adpResponse struct {
+	JobRequisitions []struct {
+		ItemID                 string `json:"itemID"`
+		RequisitionTitle       string `json:"requisitionTitle"`
+		RequisitionDescription string `json:"requisitionDescription"`
+		RequisitionLocations   []struct {
+			NameCode struct {
+				ShortName string `json:"shortName"`
+			} `json:"nameCode"`
+			Address struct {
+				CityName                 string `json:"cityName"`
+				CountrySubdivisionLevel1 struct {
+					CodeValue string `json:"codeValue"`
+				} `json:"countrySubdivisionLevel1"`
+			} `json:"address"`
+		} `json:"requisitionLocations"`
+	} `json:"jobRequisitions"`
+}
+
+func fetchADPJobs(ctx context.Context, client *http.Client, cid, ccId, company string) ([]JobPosting, error) {
+	url := fmt.Sprintf("https://workforcenow.adp.com/mascsr/default/careercenter/public/events/staffing/v1/job-requisitions?cid=%s&ccId=%s&lang=en_US", cid, ccId)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "SunfireBot/1.0 (daniel@danielkill.online; career-matcher)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("adp HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	var aResp adpResponse
+	if err := json.Unmarshal(body, &aResp); err != nil {
+		return nil, fmt.Errorf("unmarshaling adp response: %w", err)
+	}
+
+	var results []JobPosting
+	for _, req := range aResp.JobRequisitions {
+		if req.ItemID == "" || req.RequisitionTitle == "" {
+			continue
+		}
+
+		loc := "Cleveland / Toledo, OH"
+		if len(req.RequisitionLocations) > 0 {
+			first := req.RequisitionLocations[0]
+			if first.Address.CityName != "" && first.Address.CountrySubdivisionLevel1.CodeValue != "" {
+				loc = fmt.Sprintf("%s, %s", first.Address.CityName, first.Address.CountrySubdivisionLevel1.CodeValue)
+			} else if first.NameCode.ShortName != "" {
+				loc = first.NameCode.ShortName
+			}
+		}
+
+		detailURL := fmt.Sprintf("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=%s&ccId=%s&jobId=%s&lang=en_US", cid, ccId, req.ItemID)
+
+		results = append(results, JobPosting{
+			ID:          fmt.Sprintf("adp-%s", req.ItemID),
+			Source:      company + " (ADP)",
+			Title:       req.RequisitionTitle,
+			Company:     company,
+			URL:         detailURL,
+			Location:    loc,
+			Salary:      "Disclosed in listing",
+			Description: cleanHTMLDescription(req.RequisitionDescription, 400),
+			PublishedAt: time.Now(),
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// Taleo Scraper
+// ----------------------------------------------------------------------------
+
+var taleoLinkRegex = regexp.MustCompile(`<a[^>]+href="([^"]*viewRequisition[^"]*)"[^>]*>([\s\S]*?)</a>`)
+var taleoRidRegex = regexp.MustCompile(`rid=([0-9]+)`)
+
+func fetchTaleoJobs(ctx context.Context, client *http.Client, taleoURL, company string) ([]JobPosting, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, taleoURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("taleo HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	matches := taleoLinkRegex.FindAllSubmatch(body, -1)
+	seenRids := make(map[string]bool)
+	var results []JobPosting
+
+	for _, m := range matches {
+		if len(m) < 3 {
+			continue
+		}
+		rawLink := string(m[1])
+		rawTitle := cleanHTMLDescription(string(m[2]), 120)
+
+		if rawTitle == "" || strings.EqualFold(rawTitle, "view") || strings.EqualFold(rawTitle, "apply") {
+			continue
+		}
+
+		ridMatch := taleoRidRegex.FindStringSubmatch(rawLink)
+		if len(ridMatch) < 2 {
+			continue
+		}
+		rid := ridMatch[1]
+		if seenRids[rid] {
+			continue
+		}
+		seenRids[rid] = true
+
+		detailURL := rawLink
+		if !strings.HasPrefix(detailURL, "http") {
+			detailURL = "https://phg.tbe.taleo.net" + detailURL
+		}
+
+		results = append(results, JobPosting{
+			ID:          fmt.Sprintf("taleo-bvhs-%s", rid),
+			Source:      company + " (Taleo)",
+			Title:       rawTitle,
+			Company:     company,
+			URL:         detailURL,
+			Location:    "Findlay, OH (BVHS)",
+			Salary:      "Disclosed in listing",
+			Description: fmt.Sprintf("Blanchard Valley Health System Requisition %s: %s", rid, rawTitle),
+			PublishedAt: time.Now(),
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// RSS Feed Scraper
+// ----------------------------------------------------------------------------
+
+type rssRoot struct {
+	XMLName xml.Name   `xml:"rss"`
+	Channel rssChannel `xml:"channel"`
+}
+
+type rssChannel struct {
+	Title string    `xml:"title"`
+	Items []rssItem `xml:"item"`
+}
+
+type rssItem struct {
+	Title       string `xml:"title"`
+	Description string `xml:"description"`
+	Link        string `xml:"link"`
+	GUID        string `xml:"guid"`
+	PubDate     string `xml:"pubDate"`
+	Category    string `xml:"category"`
+}
+
+func fetchRSSJobs(ctx context.Context, client *http.Client, rssURL, company string) ([]JobPosting, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rssURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "SunfireBot/1.0 (daniel@danielkill.online; career-matcher)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("rss HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	var root rssRoot
+	if err := xml.Unmarshal(body, &root); err != nil {
+		return nil, fmt.Errorf("xml unmarshal rss: %w", err)
+	}
+
+	var results []JobPosting
+	for _, itm := range root.Channel.Items {
+		id := itm.GUID
+		if id == "" {
+			id = itm.Link
+		}
+		if id == "" || itm.Title == "" {
+			continue
+		}
+
+		pubTime, _ := time.Parse(time.RFC1123Z, itm.PubDate)
+		if pubTime.IsZero() {
+			pubTime, _ = time.Parse(time.RFC1123, itm.PubDate)
+		}
+		if pubTime.IsZero() {
+			pubTime = time.Now()
+		}
+
+		var tags []string
+		if itm.Category != "" {
+			tags = append(tags, itm.Category)
+		}
+
+		results = append(results, JobPosting{
+			ID:          id,
+			Source:      company,
+			Title:       cleanHTMLDescription(itm.Title, 120),
+			Company:     company,
+			URL:         itm.Link,
+			Location:    "United States / Remote",
+			Salary:      "Disclosed in listing",
+			Description: cleanHTMLDescription(itm.Description, 400),
+			PublishedAt: pubTime,
+			Tags:        tags,
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
+// Generic HTML / JSON-LD Fallback Scraper
+// ----------------------------------------------------------------------------
+
+type jsonLDJobPosting struct {
+	Type               interface{} `json:"@type"`
+	Title              string      `json:"title"`
+	Description        string      `json:"description"`
+	HiringOrganization struct {
+		Name string `json:"name"`
+	} `json:"hiringOrganization"`
+	JobLocation struct {
+		Address struct {
+			AddressLocality string `json:"addressLocality"`
+			AddressRegion   string `json:"addressRegion"`
+		} `json:"address"`
+	} `json:"jobLocation"`
+	URL string `json:"url"`
+}
+
+var jsonLDScriptRegex = regexp.MustCompile(`<script[^>]+type=["']application/ld\+json["'][^>]*>([\s\S]*?)</script>`)
+var genericJobLinkRegex = regexp.MustCompile(`<a[^>]+href="([^"]*(?:/job/|/careers/|/position/|/requisition/|/jobs/)[^"]*)"[^>]*>([\s\S]*?)</a>`)
+
+func fetchGenericWebpageJobs(ctx context.Context, client *http.Client, pageURL string) ([]JobPosting, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("webpage HTTP %d: %v", resp.StatusCode, err)
+	}
+
+	var results []JobPosting
+
+	// Check JSON-LD
+	jsonLDMatches := jsonLDScriptRegex.FindAllSubmatch(body, -1)
+	for _, m := range jsonLDMatches {
+		if len(m) < 2 {
+			continue
+		}
+		var jp jsonLDJobPosting
+		if err := json.Unmarshal(m[1], &jp); err == nil && jp.Title != "" {
+			loc := fmt.Sprintf("%s, %s", jp.JobLocation.Address.AddressLocality, jp.JobLocation.Address.AddressRegion)
+			if loc == ", " {
+				loc = "Disclosed in listing"
+			}
+			jobURL := jp.URL
+			if jobURL == "" {
+				jobURL = pageURL
+			}
+			company := jp.HiringOrganization.Name
+			if company == "" {
+				company = "Career Listing"
+			}
+			results = append(results, JobPosting{
+				ID:          fmt.Sprintf("jsonld-%s-%s", jp.Title, loc),
+				Source:      "Web Career Listing",
+				Title:       jp.Title,
+				Company:     company,
+				URL:         jobURL,
+				Location:    loc,
+				Salary:      "Disclosed in listing",
+				Description: cleanHTMLDescription(jp.Description, 400),
+				PublishedAt: time.Now(),
+			})
+		}
+	}
+
+	if len(results) > 0 {
+		return results, nil
+	}
+
+	// Fallback to extracting job links
+	linkMatches := genericJobLinkRegex.FindAllSubmatch(body, -1)
+	seenHrefs := make(map[string]bool)
+	for _, m := range linkMatches {
+		if len(m) < 3 {
+			continue
+		}
+		rawHref := string(m[1])
+		rawTitle := cleanHTMLDescription(string(m[2]), 120)
+
+		if len(rawTitle) < 5 || seenHrefs[rawHref] {
+			continue
+		}
+		if strings.EqualFold(rawTitle, "apply now") || strings.EqualFold(rawTitle, "learn more") || strings.EqualFold(rawTitle, "read more") {
+			continue
+		}
+		seenHrefs[rawHref] = true
+
+		fullLink := rawHref
+		if !strings.HasPrefix(fullLink, "http") {
+			fullLink = pageURL + rawHref
+		}
+
+		results = append(results, JobPosting{
+			ID:          fmt.Sprintf("web-%s", fullLink),
+			Source:      "Web Career Board",
+			Title:       rawTitle,
+			Company:     "Career Listing",
+			URL:         fullLink,
+			Location:    "Disclosed in listing",
+			Salary:      "Disclosed in listing",
+			Description: rawTitle,
+			PublishedAt: time.Now(),
+		})
+	}
+
+	return results, nil
+}
+
+// ----------------------------------------------------------------------------
 // Core Matcher & Dispatcher
 // ----------------------------------------------------------------------------
 
-func fetchAllCandidateJobs(ctx context.Context, client *http.Client) []JobPosting {
+func fetchAllCandidateJobs(ctx context.Context, client *http.Client, customURLs []string) []JobPosting {
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
@@ -640,16 +1497,32 @@ func fetchAllCandidateJobs(ctx context.Context, client *http.Client) []JobPostin
 		}(f.name, f.fn)
 	}
 
+	if len(customURLs) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cJobs := fetchCustomURLJobs(ctx, client, customURLs)
+			mu.Lock()
+			allJobs = append(allJobs, cJobs...)
+			mu.Unlock()
+			log.Printf("Job notifier: [CustomURLs] fetched %d jobs from %d sources", len(cJobs), len(customURLs))
+		}()
+	}
+
 	wg.Wait()
 
-	// Deduplicate candidates across feeds and categories by Job ID
+	// Deduplicate candidates across feeds and categories by Job ID or URL
 	seen := make(map[string]bool)
 	var deduped []JobPosting
 	for _, j := range allJobs {
-		if j.ID == "" || seen[j.ID] {
+		key := j.ID
+		if key == "" {
+			key = j.URL
+		}
+		if key == "" || seen[key] {
 			continue
 		}
-		seen[j.ID] = true
+		seen[key] = true
 		deduped = append(deduped, j)
 	}
 
@@ -672,15 +1545,29 @@ func buildJobEmbed(job JobPosting) *discordgo.MessageEmbed {
 		desc = desc[:347] + "..."
 	}
 
+	locDisplay := job.Location
+	if locDisplay == "" {
+		locDisplay = "100% Remote (US)"
+	}
+	locFieldTitle := "📍 Workplace Location"
+	if strings.Contains(strings.ToLower(locDisplay), "remote") {
+		locFieldTitle = "🌐 Remote Status"
+	}
+
+	salaryDisplay := job.Salary
+	if salaryDisplay == "" {
+		salaryDisplay = "Disclosed in listing"
+	}
+
 	fields := []*discordgo.MessageEmbedField{
 		{
-			Name:   "🌐 Remote Status",
-			Value:  fmt.Sprintf("100%% Remote (%s)", job.Location),
+			Name:   locFieldTitle,
+			Value:  locDisplay,
 			Inline: true,
 		},
 		{
 			Name:   "💰 Compensation",
-			Value:  job.Salary,
+			Value:  salaryDisplay,
 			Inline: true,
 		},
 		{
@@ -725,7 +1612,14 @@ func checkJobUpdates(s *discordgo.Session, cfg *Config) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	candidates := fetchAllCandidateJobs(ctx, client)
+	var urls []string
+	if len(gCfg.JobsURLs) > 0 {
+		urls = gCfg.JobsURLs
+	} else if cfg != nil && len(cfg.JobsURLs) > 0 {
+		urls = cfg.JobsURLs
+	}
+
+	candidates := fetchAllCandidateJobs(ctx, client, urls)
 	if len(candidates) == 0 {
 		log.Printf("Job notifier: no candidate jobs retrieved")
 		return
