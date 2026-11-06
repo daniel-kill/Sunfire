@@ -822,6 +822,21 @@ type paylocityData struct {
 	} `json:"Jobs"`
 }
 
+func formatJobID(id interface{}) string {
+	switch v := id.(type) {
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	case float32:
+		return fmt.Sprintf("%.0f", v)
+	case int, int32, int64:
+		return fmt.Sprintf("%d", v)
+	case string:
+		return v
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 func fetchPaylocityJobs(ctx context.Context, client *http.Client, paylocityURL string) ([]JobPosting, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, paylocityURL, nil)
 	if err != nil {
@@ -870,7 +885,7 @@ func fetchPaylocityJobs(ctx context.Context, client *http.Client, paylocityURL s
 
 	var results []JobPosting
 	for _, j := range pData.Jobs {
-		jobID := fmt.Sprintf("%v", j.JobID)
+		jobID := formatJobID(j.JobID)
 		if jobID == "" || j.JobTitle == "" {
 			continue
 		}
@@ -1064,7 +1079,7 @@ func fetchBambooHRJobs(ctx context.Context, client *http.Client, subdomain, comp
 
 	var results []JobPosting
 	for _, itm := range bResp.Result {
-		idStr := fmt.Sprintf("%v", itm.ID)
+		idStr := formatJobID(itm.ID)
 		if idStr == "" || itm.JobOpeningName == "" {
 			continue
 		}
