@@ -20,7 +20,7 @@ import (
 // SunfireServerID is the primary server Sunfire runs in.
 const SunfireServerID = "1557930395868209162"
 const SecondaryServerID = "1557930395868209162"
-const SunfireAppID = "1553668018641436702"
+const SunfireAppID = "1568417197464883211"
 
 var allowedGuildIDs = []string{
 	SunfireServerID,

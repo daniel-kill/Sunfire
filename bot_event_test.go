@@ -92,7 +92,7 @@ func TestMessageCreateQueuesMessagesFromLoggedChannels(t *testing.T) {
 
 	message := &discordgo.MessageCreate{Message: &discordgo.Message{
 		ID: "1558198498145607742", GuildID: SunfireServerID, ChannelID: "1555309257065496678",
-		Author:  &discordgo.User{ID: "1553668018641436702", Username: "tester", Bot: true},
+		Author:  &discordgo.User{ID: SunfireAppID, Username: "tester", Bot: true},
 		Content: "test message",
 	}}
 	(&Bot{}).onMessageCreate(nil, message)
