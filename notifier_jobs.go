@@ -1687,6 +1687,7 @@ func checkJobUpdates(s *discordgo.Session, cfg *Config) {
 				msgSend.Content = header
 			}
 			msgSend.Embeds = []*discordgo.MessageEmbed{buildJobEmbed(match)}
+			msgSend.Components = buildJobActionRow(match)
 
 			if _, err := sendNotifierComplex(s, gCfg.JobsChannelID, msgSend); err != nil {
 				log.Printf("Job notifier: failed posting initial job %s: %v", match.ID, err)
@@ -1716,8 +1717,9 @@ func checkJobUpdates(s *discordgo.Session, cfg *Config) {
 		}
 
 		msgSend := &discordgo.MessageSend{
-			Content: header,
-			Embeds:  []*discordgo.MessageEmbed{buildJobEmbed(match)},
+			Content:    header,
+			Embeds:     []*discordgo.MessageEmbed{buildJobEmbed(match)},
+			Components: buildJobActionRow(match),
 		}
 
 		if _, err := sendNotifierComplex(s, gCfg.JobsChannelID, msgSend); err != nil {

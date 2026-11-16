@@ -156,6 +156,7 @@ func (b *Bot) startWorkers(s *discordgo.Session) {
 		func(ctx context.Context) { startHermesTipsDaemon(ctx, s) },
 		func(ctx context.Context) { startRSSNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startJobsNotifierDaemon(ctx, s) },
+		func(ctx context.Context) { startCareerBriefingDaemon(ctx, s) },
 	)
 }
 
@@ -198,6 +199,10 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		data := i.MessageComponentData()
 		if strings.HasPrefix(data.CustomID, "help:") {
 			handleHelpComponent(s, i)
+			return
+		}
+		if strings.HasPrefix(data.CustomID, "job:") {
+			handleJobComponent(s, i)
 			return
 		}
 		if strings.HasPrefix(data.CustomID, "or:") {

@@ -837,7 +837,7 @@ func buildCommandSpecs() {
 		},
 	}
 
-	commandSpecs = append(commandSpecs, openRouterCommandSpec())
+	commandSpecs = append(commandSpecs, openRouterCommandSpec(), careerCommandSpec())
 
 	for _, spec := range a2e.CommandSpecs() {
 		commandSpecs = append(commandSpecs, commandSpec{Command: spec.Command, Handler: spec.Handler})
