@@ -49,9 +49,10 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
 
 ## In Progress & Immediate Next Steps
 
-1. **Phase 4 Architecture (Web Dashboard & Telemetry):**
-   - Design lightweight web UI for subscription burn rates, upcoming renewals, and job application Kanban boards.
-   - Design outbound webhook dispatchers for server outages or critical bot events.
+1. **Operational Maintenance & Reliability Monitoring:**
+   - Supervise continuous bot uptime and background worker health under `systemd --user` (`sunfire.service`).
+   - Monitor automated daily rolling log pruning and gzip archiving (`startPeriodicDataPruner`).
+   - Track hourly subscription renewal DM alerts and periodic media deduplication passes.
 
 ---
 

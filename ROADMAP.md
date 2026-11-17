@@ -84,12 +84,3 @@
   - Automatic fallback hierarchy: Uploaded attachment -> Custom file path -> `.private/career/Resume.pdf` (native PDF text parsed) -> `Resume.md` -> Embedded summary.
 
 **Exit Criteria Met:** Single unified configuration path across all subpackages (`SUNFIRE_CONFIG_FILE`); automated data pruning and gzip archival active (`startPeriodicDataPruner`); native PDF resume ingestion operational with ATS analysis.
-
----
-
-## Phase 4 — Web Dashboard & Fleet Telemetry (PLANNED - Future)
-
-- [ ] **Sunfire Management Web Dashboard:**
-  - Build an optional local web UI displaying subscription burn rates, upcoming renewals, job application Kanban boards, and server health.
-- [ ] **Outbound Webhook Notifications:**
-  - Add webhook dispatchers to alert external monitoring systems or phone notifications upon critical bot events or server outages.
