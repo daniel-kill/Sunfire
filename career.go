@@ -4,12 +4,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/dslipak/pdf"
 )
 
 // JobApplication represents a tracked job application.
@@ -82,6 +85,86 @@ func careerDataPath() string {
 // resumeMarkdownPath returns the path to Resume.md.
 func resumeMarkdownPath() string {
 	return applicationPath(".private", "career", "Resume.md")
+}
+
+// resumePDFPath returns the path to Resume.pdf in .private/career.
+func resumePDFPath() string {
+	return applicationPath(".private", "career", "Resume.pdf")
+}
+
+// extractTextFromPDF reads and extracts plain text from a local PDF file.
+func extractTextFromPDF(filePath string) (string, error) {
+	r, err := pdf.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("opening pdf %s: %w", filePath, err)
+	}
+	var buf bytes.Buffer
+	b, err := r.GetPlainText()
+	if err != nil {
+		return "", fmt.Errorf("extracting plain text from %s: %w", filePath, err)
+	}
+	if _, err := buf.ReadFrom(b); err != nil {
+		return "", fmt.Errorf("reading text buffer from %s: %w", filePath, err)
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+// extractTextFromPDFBytes extracts plain text from in-memory PDF bytes.
+func extractTextFromPDFBytes(data []byte) (string, error) {
+	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("opening pdf reader: %w", err)
+	}
+	var buf bytes.Buffer
+	b, err := r.GetPlainText()
+	if err != nil {
+		return "", fmt.Errorf("extracting plain text: %w", err)
+	}
+	if _, err := buf.ReadFrom(b); err != nil {
+		return "", fmt.Errorf("reading text buffer: %w", err)
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+// loadAuthoritativeResume loads resume text, prioritizing native PDF extraction
+// from Resume.pdf, falling back to Resume.md, and finally to default profile text.
+func loadAuthoritativeResume(customPath string, uploadedBytes []byte, filename string) (string, string) {
+	// 1. In-memory uploaded PDF or document
+	if len(uploadedBytes) > 0 {
+		lowerName := strings.ToLower(filename)
+		if strings.HasSuffix(lowerName, ".pdf") {
+			if txt, err := extractTextFromPDFBytes(uploadedBytes); err == nil && len(txt) > 0 {
+				return txt, fmt.Sprintf("Uploaded PDF (%s, %d chars)", filename, len(txt))
+			}
+		}
+		return strings.TrimSpace(string(uploadedBytes)), fmt.Sprintf("Uploaded Document (%s)", filename)
+	}
+
+	// 2. Explicit custom file path
+	if customPath != "" {
+		if strings.HasSuffix(strings.ToLower(customPath), ".pdf") {
+			if txt, err := extractTextFromPDF(customPath); err == nil && len(txt) > 0 {
+				return txt, fmt.Sprintf("%s (native PDF, %d chars)", filepath.Base(customPath), len(txt))
+			}
+		}
+		if b, err := os.ReadFile(customPath); err == nil && len(b) > 0 {
+			return strings.TrimSpace(string(b)), filepath.Base(customPath)
+		}
+	}
+
+	// 3. Local Resume.pdf in .private/career/Resume.pdf
+	pdfFile := resumePDFPath()
+	if txt, err := extractTextFromPDF(pdfFile); err == nil && len(txt) > 0 {
+		return txt, fmt.Sprintf("Resume.pdf (native PDF parsed, %d chars)", len(txt))
+	}
+
+	// 4. Local Resume.md in .private/career/Resume.md
+	if mdBytes, err := os.ReadFile(resumeMarkdownPath()); err == nil && len(mdBytes) > 0 {
+		return strings.TrimSpace(string(mdBytes)), "Resume.md"
+	}
+
+	// 5. Embedded fallback
+	return "Daniel Kill — Senior IT Manager & Infrastructure Engineer (22+ years enterprise IT leadership, Linux/Debian, Go, Docker, PowerShell 7, Hyper-V, multi-provider AI).", "Embedded Resume Profile"
 }
 
 // shortJobHash returns a deterministic 12-char hash for Discord custom IDs.
@@ -407,7 +490,7 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			job.Description = emb.Description
 		}
 
-		analysis, err := performAIFitAnalysis(context.Background(), job.Title, job.Company, job.Description, job.URL)
+		analysis, resumeSource, err := performAIFitAnalysis(context.Background(), job.Title, job.Company, job.Description, job.URL, "", nil, "")
 		if err != nil {
 			followUpEphemeral(s, i, "❌ Analysis error: "+err.Error())
 			return
@@ -418,7 +501,7 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Description: fmt.Sprintf("**Target Employer:** %s\n\n%s", job.Company, analysis),
 			Color:       0x1e3a8a, // Sunfire Navy
 			Footer: &discordgo.MessageEmbedFooter{
-				Text: "Sunfire Career Copilot • Evaluated against Resume.md",
+				Text: fmt.Sprintf("Sunfire Career Copilot • Evaluated against %s", resumeSource),
 			},
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
@@ -446,13 +529,9 @@ func scheduleCareerFollowUp(channelID, userID, company, position string, fireTim
 	_ = saveReminders()
 }
 
-// performAIFitAnalysis compares job details with Resume.md using Sunfire's LLM routing.
-func performAIFitAnalysis(ctx context.Context, title, company, description, url string) (string, error) {
-	resumeBytes, err := os.ReadFile(resumeMarkdownPath())
-	resumeText := string(resumeBytes)
-	if err != nil || len(resumeText) == 0 {
-		resumeText = "Daniel Kill — Senior IT Manager & Infrastructure Engineer (22+ years enterprise IT leadership, Linux/Debian, Go, Docker, PowerShell 7, Hyper-V, multi-provider AI)."
-	}
+// performAIFitAnalysis compares job details with authoritative resume using Sunfire's LLM routing.
+func performAIFitAnalysis(ctx context.Context, title, company, description, url, customResumePath string, uploadedBytes []byte, uploadName string) (string, string, error) {
+	resumeText, resumeSource := loadAuthoritativeResume(customResumePath, uploadedBytes, uploadName)
 
 	jobCtx := fmt.Sprintf("Role: %s\nCompany: %s\nDetails: %s\nLink: %s", title, company, description, url)
 	prompt := fmt.Sprintf(`You are an expert executive tech recruiter and ATS optimization specialist advising Daniel Kill.
@@ -477,9 +556,9 @@ Provide a concise, punchy evaluation with these exact markdown sections:
 	res, err := callCareerLLM(ctx, "You are a career strategist specializing in senior IT leadership and DevOps roles.", prompt)
 	if err != nil {
 		// Deterministic fallback if API offline
-		return generateDeterministicMatch(title, company, description), nil
+		return generateDeterministicMatch(title, company, description), resumeSource, nil
 	}
-	return res, nil
+	return res, resumeSource, nil
 }
 
 // generateDeterministicMatch provides an instant, offline-safe fit analysis based on Resume.md.
@@ -512,11 +591,7 @@ func generateDeterministicMatch(title, company, description string) string {
 
 // generateTailoredCoverLetter drafts a customized cover letter from Resume.md.
 func generateTailoredCoverLetter(ctx context.Context, company, position, description, tone string) (string, error) {
-	resumeBytes, err := os.ReadFile(resumeMarkdownPath())
-	resumeText := string(resumeBytes)
-	if err != nil || len(resumeText) == 0 {
-		resumeText = "Daniel Kill — Senior IT Manager & Infrastructure Engineer (22+ years enterprise IT leadership, Linux/Debian, Go, Docker, PowerShell 7, Hyper-V, multi-provider AI)."
-	}
+	resumeText, _ := loadAuthoritativeResume("", nil, "")
 
 	if tone == "" {
 		tone = "Balanced (Executive Leadership + Modern Engineering)"
@@ -573,8 +648,8 @@ func callCareerLLM(ctx context.Context, systemPrompt, userPrompt string) (string
 				{"role": "system", "content": systemPrompt},
 				{"role": "user", "content": userPrompt},
 			},
-			"max_tokens":   1600,
-			"temperature":  0.4,
+			"max_tokens":  1600,
+			"temperature": 0.4,
 		}
 		bodyBytes, err := json.Marshal(payload)
 		if err == nil {
@@ -676,10 +751,23 @@ func careerCommandSpec() commandSpec {
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "match",
-					Description: "Analyze job fit and ATS keyword alignment against Resume.md",
+					Description: "Analyze job fit and ATS keyword alignment against Resume.pdf or Resume.md",
 					Options: []*discordgo.ApplicationCommandOption{
 						{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Job posting link to scrape and evaluate", Required: false},
 						{Type: discordgo.ApplicationCommandOptionString, Name: "description", Description: "Pasted job description text or requirements", Required: false},
+						{Type: discordgo.ApplicationCommandOptionAttachment, Name: "resume", Description: "Upload a PDF or Markdown resume to analyze against", Required: false},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "resume_path", Description: "Custom local path to PDF or Markdown resume", Required: false},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "analyze",
+					Description: "Analyze job fit and ATS keyword alignment against Resume.pdf or Resume.md",
+					Options: []*discordgo.ApplicationCommandOption{
+						{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Job posting link to scrape and evaluate", Required: false},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "description", Description: "Pasted job description text or requirements", Required: false},
+						{Type: discordgo.ApplicationCommandOptionAttachment, Name: "resume", Description: "Upload a PDF or Markdown resume to analyze against", Required: false},
+						{Type: discordgo.ApplicationCommandOptionString, Name: "resume_path", Description: "Custom local path to PDF or Markdown resume", Required: false},
 					},
 				},
 				{
@@ -756,7 +844,7 @@ func handleCareerCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handleCareerStatus(s, i, sub)
 	case "update":
 		handleCareerUpdate(s, i, sub)
-	case "match":
+	case "match", "analyze":
 		handleCareerMatch(s, i, sub)
 	case "coverletter":
 		handleCareerCoverLetter(s, i, sub)
@@ -1062,13 +1150,29 @@ func handleCareerMatch(s *discordgo.Session, i *discordgo.InteractionCreate, sub
 		},
 	})
 
-	var jobURL, jobDesc string
+	var jobURL, jobDesc, customResumePath string
+	var uploadedBytes []byte
+	var uploadedName string
+
 	for _, opt := range sub.Options {
 		switch opt.Name {
 		case "url":
 			jobURL = strings.TrimSpace(opt.StringValue())
 		case "description":
 			jobDesc = strings.TrimSpace(opt.StringValue())
+		case "resume_path":
+			customResumePath = strings.TrimSpace(opt.StringValue())
+		case "resume":
+			if attID, ok := opt.Value.(string); ok && i.ApplicationCommandData().Resolved != nil {
+				if att, exists := i.ApplicationCommandData().Resolved.Attachments[attID]; exists && att != nil {
+					uploadedName = att.Filename
+					resp, err := mediaHTTPClient.Get(att.URL)
+					if err == nil && resp.StatusCode == 200 {
+						uploadedBytes, _ = io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+						resp.Body.Close()
+					}
+				}
+			}
 		}
 	}
 
@@ -1090,7 +1194,7 @@ func handleCareerMatch(s *discordgo.Session, i *discordgo.InteractionCreate, sub
 		}
 	}
 
-	analysis, err := performAIFitAnalysis(context.Background(), title, company, jobDesc, jobURL)
+	analysis, resumeSource, err := performAIFitAnalysis(context.Background(), title, company, jobDesc, jobURL, customResumePath, uploadedBytes, uploadedName)
 	if err != nil {
 		followUpEphemeral(s, i, "❌ Analysis failed: "+err.Error())
 		return
@@ -1101,7 +1205,7 @@ func handleCareerMatch(s *discordgo.Session, i *discordgo.InteractionCreate, sub
 		Description: fmt.Sprintf("**Target Employer:** %s\n\n%s", company, analysis),
 		Color:       0x1e3a8a,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Sunfire Career Copilot • Evaluated against Resume.md",
+			Text: fmt.Sprintf("Sunfire Career Copilot • Evaluated against %s", resumeSource),
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}

@@ -130,6 +130,7 @@ func buildCommandSpecs() {
 		},
 		{Command: &discordgo.ApplicationCommand{Name: "setup", Description: "Create private Sunfire category/logs and read-only INFO/rules channels."}, Handler: handleSetup},
 		{Command: &discordgo.ApplicationCommand{Name: "dedup", Description: "Run SHA-256 duplicate media cleanup on server media logs."}, Handler: handleDedup},
+		{Command: &discordgo.ApplicationCommand{Name: "prunelogs", Description: "Run automated message and media log pruning and archival pass."}, Handler: handlePruneLogs},
 		{
 			Command: &discordgo.ApplicationCommand{
 				Name:        "grant-access",
@@ -258,7 +259,6 @@ func buildCommandSpecs() {
 			Handler: handleAnalytics,
 		},
 
-		
 		// --- CHANNEL MANAGEMENT COMMAND ---
 		{
 			Command: &discordgo.ApplicationCommand{
@@ -918,7 +918,7 @@ var helpCategories = []helpCategory{
 	{Value: "moderation", Label: "Moderation & Staff", Commands: []string{
 		"automod", "warn", "timeout", "kick", "ban", "unban", "mute", "unmute", "purge", "note",
 		"role", "rolemenu", "autorole", "ticket-panel", "close-ticket", "message-log", "backup", "channel",
-		"dedup", "grant-access", "searchlogs", "setup",
+		"dedup", "grant-access", "prunelogs", "searchlogs", "setup",
 		"slowmode",
 	}},
 	{Value: "mistral", Label: "Mistral", Commands: []string{"mistral"}},
@@ -2351,4 +2351,35 @@ func handleNotifiersCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 			}
 		}()
 	}
+}
+
+func handlePruneLogs(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	cfg, _ := loadConfig()
+	pruneCfg := defaultDataPruneConfig()
+	if cfg != nil {
+		pruneCfg = resolveDataPruneConfig(cfg)
+	}
+
+	res := RunDataPrune(pruneCfg)
+
+	content := fmt.Sprintf("✅ **Log Pruning & Archival Complete** (in %s):\n• **Message Logs:** Scanned %d files, pruned **%d** records (**%d** archived to `Data/Archives/`)\n• **Media Logs:** Scanned %d files, pruned **%d** files (**%.2f MB** freed)",
+		res.Duration.Round(time.Millisecond),
+		res.MessageFilesScanned, res.MessagesPruned, res.MessagesArchived,
+		res.MediaFilesScanned, res.MediaFilesPruned, float64(res.MediaBytesFreed)/(1024*1024))
+
+	if len(res.Errors) > 0 {
+		content += fmt.Sprintf("\n⚠️ Encountered %d minor issue(s): %s", len(res.Errors), strings.Join(res.Errors, "; "))
+	}
+
+	_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: content,
+		Flags:   discordgo.MessageFlagsEphemeral,
+	})
 }

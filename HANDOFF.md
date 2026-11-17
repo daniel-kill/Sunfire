@@ -23,7 +23,7 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
 | **Media Processing** | `media.go`, `media_logger.go` | 25-transformation FFmpeg interactive picker (`/media`), format transcoding (MP4, WebM, MP3, Opus), lossless optimization, GIF creation, and LUFS normalization. |
 | **AI & Multi-Provider** | `providers/`, `venice/`, `a2e/`, `openrouter.go` | Venice AI suite (`/venice music` Minimax v26, chat, image, transcription), OpenRouter streaming LLM gateway, and A2E audio integration. |
 | **Reminders & Workers** | `reminders.go`, `service.go`, `health_checker.go` | Cancellable background workers; recurring reminders with duration intervals (`30m`, `1h`, `1d`, `1w`) and timezone support; external URL health probing. |
-| **Audit & Moderation** | `automod.go`, `message_logger.go`, `message_log.go` | Substring AutoMod with event logging to `Data/AutoModEvents/`; local JSONL message archiving; optional PostgreSQL message archive querying. |
+| **Audit & Moderation** | `automod.go`, `message_logger.go`, `message_log.go`, `data_pruner.go` | Substring AutoMod with event logging to `Data/AutoModEvents/`; local JSONL message archiving; automated rolling retention, gzip archiving to `Data/Archives/`, and size-based media pruning (`/prunelogs`). |
 
 ---
 
@@ -39,18 +39,19 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
 - [x] Implemented recurring reminder scheduler with timezone support.
 - [x] Built AutoMod engine and dual local/PostgreSQL message archiving.
 - [x] Deployed and verified production systemd user service (`~/.config/systemd/user/sunfire.service`).
+- [x] **Phase 3 Completed:**
+  - Unified subpackage configuration resolution across `a2e/`, `providers/`, `venice/`, and `modules/` via `SUNFIRE_CONFIG_FILE`.
+  - Built automated rolling retention, size-based media pruning, and gzip archiving daemon (`data_pruner.go`, `/prunelogs`).
+  - Added native pure-Go PDF resume extraction (`github.com/dslipak/pdf`) to `/career analyze` and `/career match` with support for uploaded resume attachments.
 - [x] Completely updated core repository documentation: [README.md](README.md), [AGENTS.md](AGENTS.md), [HANDOFF.md](HANDOFF.md), and [ROADMAP.md](ROADMAP.md).
 
 ---
 
 ## In Progress & Immediate Next Steps
 
-1. **Unify Subpackage Configuration Resolution:**
-   - Update `a2e/`, `providers/`, and `venice/` loaders to consistently resolve configuration from `SUNFIRE_CONFIG_FILE` instead of relying on repo-relative `.private/config.json` paths.
-2. **Automated Log Rotation & Pruning Policy:**
-   - Implement an automated rolling retention daemon for message and media logs in `Data/` to prevent unbounded disk growth.
-3. **Career Copilot PDF Resume Parsing:**
-   - Add direct PDF resume ingestion to `/career analyze` for automated skill extraction and comparison against job descriptions.
+1. **Phase 4 Architecture (Web Dashboard & Telemetry):**
+   - Design lightweight web UI for subscription burn rates, upcoming renewals, and job application Kanban boards.
+   - Design outbound webhook dispatchers for server outages or critical bot events.
 
 ---
 

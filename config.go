@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -51,29 +52,30 @@ type Config struct {
 	OpenRouter ProviderConfig `json:"openrouter"`
 
 	// ElyAdmin Merged Integrations & Secrets
-	YouTubeAPIKey                 string        `json:"YOUTUBE_API_KEY"`
-	YouTubePollIntervalMs         int           `json:"YOUTUBE_POLL_INTERVAL"`
-	KickClientID                  string        `json:"KICK_CLIENT_ID"`
-	KickClientSecret              string        `json:"KICK_CLIENT_SECRET"`
-	KickPollIntervalMs            int           `json:"KICK_POLL_INTERVAL"`
-	TMDBAPIKey                    string        `json:"TMDB_API_KEY"`
-	SpotifyClientID               string        `json:"SPOTIFY_CLIENT_ID"`
-	SpotifyClientSecret           string        `json:"SPOTIFY_CLIENT_SECRET"`
-	ProductHuntAPIKey             string        `json:"PRODUCTHUNT_API_KEY"`
-	ProductHuntAPISecret          string        `json:"PRODUCTHUNT_API_SECRET"`
-	GGDealsAPIKey                 string        `json:"GGDEALS_API_KEY"`
-	PexelsAPIKey                  string        `json:"PEXELS_API_KEY"`
-	GeminiAPIKey                  string        `json:"GEMINI_API_KEY"`
-	AudiusAPIKey                  string        `json:"AUDIUS_API_KEY"`
-	AudiusAPIBearerToken          string        `json:"AUDIUS_API_BEARER_TOKEN"`
-	TarotAPIBaseURL               string        `json:"TAROT_API_BASE_URL"`
-	PostgresConnectionString      string        `json:"POSTGRES_CONNECTION_STRING"`
-	MessageLoggingEnabled         bool          `json:"MESSAGE_LOGGING_ENABLED"`
-	RSSFeedsPollIntervalMs        int           `json:"RSS_FEEDS_POLL_INTERVAL"`
-	JobsPollIntervalMs            int           `json:"JOBS_POLL_INTERVAL"`
-	JobsURLs                      []string      `json:"jobsUrls,omitempty"`
-	Scrape                        ScrapeConfig  `json:"scrape"`
-	Guild                         GuildSettings `json:"guild"`
+	YouTubeAPIKey            string          `json:"YOUTUBE_API_KEY"`
+	YouTubePollIntervalMs    int             `json:"YOUTUBE_POLL_INTERVAL"`
+	KickClientID             string          `json:"KICK_CLIENT_ID"`
+	KickClientSecret         string          `json:"KICK_CLIENT_SECRET"`
+	KickPollIntervalMs       int             `json:"KICK_POLL_INTERVAL"`
+	TMDBAPIKey               string          `json:"TMDB_API_KEY"`
+	SpotifyClientID          string          `json:"SPOTIFY_CLIENT_ID"`
+	SpotifyClientSecret      string          `json:"SPOTIFY_CLIENT_SECRET"`
+	ProductHuntAPIKey        string          `json:"PRODUCTHUNT_API_KEY"`
+	ProductHuntAPISecret     string          `json:"PRODUCTHUNT_API_SECRET"`
+	GGDealsAPIKey            string          `json:"GGDEALS_API_KEY"`
+	PexelsAPIKey             string          `json:"PEXELS_API_KEY"`
+	GeminiAPIKey             string          `json:"GEMINI_API_KEY"`
+	AudiusAPIKey             string          `json:"AUDIUS_API_KEY"`
+	AudiusAPIBearerToken     string          `json:"AUDIUS_API_BEARER_TOKEN"`
+	TarotAPIBaseURL          string          `json:"TAROT_API_BASE_URL"`
+	PostgresConnectionString string          `json:"POSTGRES_CONNECTION_STRING"`
+	MessageLoggingEnabled    bool            `json:"MESSAGE_LOGGING_ENABLED"`
+	RSSFeedsPollIntervalMs   int             `json:"RSS_FEEDS_POLL_INTERVAL"`
+	JobsPollIntervalMs       int             `json:"JOBS_POLL_INTERVAL"`
+	JobsURLs                 []string        `json:"jobsUrls,omitempty"`
+	Scrape                   ScrapeConfig    `json:"scrape"`
+	Guild                    GuildSettings   `json:"guild"`
+	DataPrune                DataPruneConfig `json:"dataPrune"`
 }
 
 type ScrapeConfig struct {
@@ -261,4 +263,68 @@ func isBotAdmin(cfg *Config, userID string) bool {
 		}
 	}
 	return false
+}
+
+type DataPruneConfig struct {
+	Enabled            bool `json:"enabled"`
+	RetentionDays      int  `json:"retentionDays"`      // Message logs max age in days (default: 90)
+	MediaRetentionDays int  `json:"mediaRetentionDays"` // Media logs max age in days (default: 60)
+	MaxMediaSizeMB     int  `json:"maxMediaSizeMB"`     // Total media logs size threshold in MB (default: 1024)
+	MaxRecordsPerUser  int  `json:"maxRecordsPerUser"`  // Max message records per author file (default: 5000)
+	ArchivePrunedLogs  bool `json:"archivePrunedLogs"`  // Gzip archive pruned message records to Data/Archives/ (default: true)
+	IntervalHours      int  `json:"intervalHours"`      // Pruning cycle interval in hours (default: 24)
+}
+
+func defaultDataPruneConfig() DataPruneConfig {
+	return DataPruneConfig{
+		Enabled:            true,
+		RetentionDays:      90,
+		MediaRetentionDays: 60,
+		MaxMediaSizeMB:     1024,
+		MaxRecordsPerUser:  5000,
+		ArchivePrunedLogs:  true,
+		IntervalHours:      24,
+	}
+}
+
+func resolveDataPruneConfig(cfg *Config) DataPruneConfig {
+	res := defaultDataPruneConfig()
+	if cfg != nil && cfg.DataPrune.Enabled {
+		res.Enabled = cfg.DataPrune.Enabled
+		if cfg.DataPrune.RetentionDays > 0 {
+			res.RetentionDays = cfg.DataPrune.RetentionDays
+		}
+		if cfg.DataPrune.MediaRetentionDays > 0 {
+			res.MediaRetentionDays = cfg.DataPrune.MediaRetentionDays
+		}
+		if cfg.DataPrune.MaxMediaSizeMB > 0 {
+			res.MaxMediaSizeMB = cfg.DataPrune.MaxMediaSizeMB
+		}
+		if cfg.DataPrune.MaxRecordsPerUser > 0 {
+			res.MaxRecordsPerUser = cfg.DataPrune.MaxRecordsPerUser
+		}
+		if cfg.DataPrune.IntervalHours > 0 {
+			res.IntervalHours = cfg.DataPrune.IntervalHours
+		}
+		res.ArchivePrunedLogs = cfg.DataPrune.ArchivePrunedLogs
+	}
+	if env := os.Getenv("SUNFIRE_PRUNE_ENABLED"); env != "" {
+		res.Enabled = strings.EqualFold(env, "true") || env == "1"
+	}
+	if env := os.Getenv("SUNFIRE_LOG_RETENTION_DAYS"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			res.RetentionDays = n
+		}
+	}
+	if env := os.Getenv("SUNFIRE_MEDIA_RETENTION_DAYS"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			res.MediaRetentionDays = n
+		}
+	}
+	if env := os.Getenv("SUNFIRE_MAX_MEDIA_MB"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			res.MaxMediaSizeMB = n
+		}
+	}
+	return res
 }

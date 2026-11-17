@@ -22,15 +22,30 @@ type Config struct {
 // cfg is the package-level config, initialized by Init.
 var cfg *Config
 
-// loadConfig reads the repo-root .private/config.json (relative to this file).
-func loadConfig() (*Config, error) {
-	_, file, _, ok := runtime.Caller(0)
-	path := ""
-	if ok {
-		path = filepath.Join(filepath.Dir(file), "..", ".private", "config.json")
-	} else {
-		path = filepath.Join("..", ".private", "config.json")
+// configPath resolves the configuration file path.
+// Priority: SUNFIRE_CONFIG_FILE env var -> SUNFIRE_HOME/.private/config.json -> source-tree relative path -> fallback.
+func configPath() string {
+	if path := os.Getenv("SUNFIRE_CONFIG_FILE"); path != "" {
+		return path
 	}
+	if home := os.Getenv("SUNFIRE_HOME"); home != "" {
+		p := filepath.Join(home, ".private", "config.json")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if _, file, _, ok := runtime.Caller(0); ok {
+		p := filepath.Join(filepath.Dir(file), "..", ".private", "config.json")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join("..", ".private", "config.json")
+}
+
+// loadConfig reads configuration from the resolved configPath.
+func loadConfig() (*Config, error) {
+	path := configPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

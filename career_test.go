@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -201,6 +202,7 @@ func TestCareerCommandSpec(t *testing.T) {
 		"status":      false,
 		"update":      false,
 		"match":       false,
+		"analyze":     false,
 		"coverletter": false,
 		"todos":       false,
 		"certs":       false,
@@ -217,5 +219,47 @@ func TestCareerCommandSpec(t *testing.T) {
 		if !found {
 			t.Errorf("expected subcommand %q in /career command", name)
 		}
+	}
+}
+func TestCareerPDFResumeExtraction(t *testing.T) {
+	pdfPath := resumePDFPath()
+	if _, err := os.Stat(pdfPath); os.IsNotExist(err) {
+		t.Skip("Resume.pdf does not exist in .private/career, skipping live test")
+	}
+
+	text, err := extractTextFromPDF(pdfPath)
+	if err != nil {
+		t.Fatalf("extractTextFromPDF(%s) failed: %v", pdfPath, err)
+	}
+
+	if len(text) < 500 {
+		t.Errorf("extracted text too short (%d bytes)", len(text))
+	}
+	if !strings.Contains(text, "DANIEL KILL") && !strings.Contains(text, "Daniel Kill") {
+		t.Errorf("extracted text does not contain Daniel Kill")
+	}
+	if !strings.Contains(text, "Bohl Equipment") && !strings.Contains(text, "Infrastructure") {
+		t.Errorf("extracted text does not contain key resume terms")
+	}
+}
+
+func TestLoadAuthoritativeResume(t *testing.T) {
+	// Test 1: Fallback when custom files do not exist
+	text, source := loadAuthoritativeResume("non_existent_file.pdf", nil, "")
+	if len(text) == 0 {
+		t.Errorf("expected non-empty resume text")
+	}
+	if len(source) == 0 {
+		t.Errorf("expected non-empty resume source")
+	}
+
+	// Test 2: Uploaded markdown bytes
+	uploadData := []byte("# Custom Candidate\nExperienced Go and DevOps engineer.")
+	txt, src := loadAuthoritativeResume("", uploadData, "candidate_resume.md")
+	if !strings.Contains(txt, "Custom Candidate") {
+		t.Errorf("expected uploaded markdown text in result")
+	}
+	if !strings.Contains(src, "candidate_resume.md") {
+		t.Errorf("expected source to mention candidate_resume.md, got %s", src)
 	}
 }

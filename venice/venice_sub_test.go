@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -162,5 +163,37 @@ func TestWaitAudioRetrievesAudioAndCompletesQueue(t *testing.T) {
 	}
 	if !completed {
 		t.Fatal("WaitAudio() did not call /audio/complete")
+	}
+}
+func TestVeniceConfigPathEnvOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	customPath := tmpDir + "/custom_venice_config.json"
+	data := []byte(`{
+		"veniceApiKey": "vnc-test-999",
+		"veniceBaseUrl": "https://custom.venice.ai/v1",
+		"defaultChatModel": "test-chat-model",
+		"defaultMusicModel": "test-music-model"
+	}`)
+	if err := os.WriteFile(customPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SUNFIRE_CONFIG_FILE", customPath)
+	if got := configPath(); got != customPath {
+		t.Errorf("configPath() = %q, want %q", got, customPath)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() failed: %v", err)
+	}
+	if cfg.VeniceAPIKey != "vnc-test-999" {
+		t.Errorf("VeniceAPIKey = %q, want vnc-test-999", cfg.VeniceAPIKey)
+	}
+	if cfg.VeniceBaseURL != "https://custom.venice.ai/v1" {
+		t.Errorf("VeniceBaseURL = %q, want https://custom.venice.ai/v1", cfg.VeniceBaseURL)
+	}
+	if cfg.DefaultChatModel != "test-chat-model" {
+		t.Errorf("DefaultChatModel = %q, want test-chat-model", cfg.DefaultChatModel)
 	}
 }

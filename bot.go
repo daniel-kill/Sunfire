@@ -158,6 +158,7 @@ func (b *Bot) startWorkers(s *discordgo.Session) {
 		func(ctx context.Context) { startJobsNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startCareerBriefingDaemon(ctx, s) },
 		func(ctx context.Context) { startSubscriptionsNotifierDaemon(ctx, s) },
+		func(ctx context.Context) { startPeriodicDataPruner(ctx, b) },
 	)
 }
 

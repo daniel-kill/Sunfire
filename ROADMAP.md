@@ -70,16 +70,20 @@
 
 ---
 
-## Phase 3 — Configuration Unification & Log Rotation (PLANNED)
+## Phase 3 — Configuration Unification & Log Rotation (COMPLETED)
 
-- [ ] **Unify Subpackage Configuration Lookups:**
+- [x] **Unify Subpackage Configuration Lookups:**
   - Update `a2e/`, `providers/`, and `venice/` loaders to consistently resolve configuration from `SUNFIRE_CONFIG_FILE` rather than hardcoding relative `.private/config.json` paths.
-- [ ] **Automated Data Pruning & Archiving Daemon:**
-  - Implement rolling retention or size-based archiving for message and media logs under `Data/` to prevent unbounded disk growth.
-- [ ] **Career Copilot PDF Resume Parsing:**
-  - Add native PDF resume text extraction to `/career analyze` for automated skill and experience comparison against job postings.
+- [x] **Automated Data Pruning & Archiving Daemon:**
+  - Implement rolling retention and size-based archiving for message and media logs under `Data/` to prevent unbounded disk growth (`data_pruner.go`).
+  - Added gzip archiving for pruned message history into `Data/Archives/MessageLogs/`.
+  - Added background daemon (`startPeriodicDataPruner`) and manual admin command (`/prunelogs`).
+- [x] **Career Copilot PDF Resume Parsing:**
+  - Added native pure-Go PDF resume text extraction (`github.com/dslipak/pdf`) to `/career analyze` and `/career match`.
+  - Added support for uploaded PDF/Markdown resume attachments and custom local file paths.
+  - Automatic fallback hierarchy: Uploaded attachment -> Custom file path -> `.private/career/Resume.pdf` (native PDF text parsed) -> `Resume.md` -> Embedded summary.
 
-**Exit Criteria:** Single unified configuration path across all subpackages; automated data pruning active; PDF resume ingestion operational.
+**Exit Criteria Met:** Single unified configuration path across all subpackages (`SUNFIRE_CONFIG_FILE`); automated data pruning and gzip archival active (`startPeriodicDataPruner`); native PDF resume ingestion operational with ATS analysis.
 
 ---
 

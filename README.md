@@ -97,7 +97,7 @@ Startup is linear, explicit, and deterministic:
 ### 1. Career Copilot (`career.go`)
 An end-to-end career management and job search suite:
 - **Application Tracking:** `/career track <org> <position> [url] [status] [notes] [followup]`, `/career list`, `/career update`, `/career stats`, `/career export` (exports to structured JSON).
-- **AI Fit Analysis:** `/career analyze <job-description>` evaluates alignment against Daniel Kill's portfolio, identifies strengths, and highlights skill gaps.
+- **AI Fit Analysis & ATS Matching:** `/career analyze` and `/career match` evaluate alignment against Daniel Kill's authoritative resume using native PDF text extraction (`Resume.pdf`), uploaded PDF/Markdown attachments, or local files, identifying strengths, ATS keywords, and interview angles.
 - **Cover Letter Drafting:** `/career cover-letter <org> <role> [description]` drafts customized, professional cover letters.
 - **Certification Roadmap:** `/career certs [status]` tracks industry credentials (AWS, CompTIA, Linux Foundation) with direct study links and priority tiers.
 - **Action Checklist & Daily Briefings:** `/career checklist` tracks administrative milestones; `/career followups` lists overdue application follow-ups.
@@ -154,6 +154,7 @@ Sunfire/
 │   └── NotifierCaches/             # Upstream RSS/notification delivery deduplication caches
 ├── .private/                       # Local uncommitted secrets (git-ignored)
 │   └── config.json                 # Bot token, provider keys, and channel bindings
+├── data_pruner.go                  # Automated rolling retention, gzip archiving, and media pruning daemon
 ├── automod.go                      # AutoMod banned phrases, scanning, and event logging
 ├── bot.go                          # DiscordGo session management, event routing, worker lifecycle
 ├── career.go                       # Career Copilot suite (tracking, AI fit analysis, certs)

@@ -3,6 +3,7 @@ package providers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"testing"
 )
 
@@ -85,5 +86,37 @@ func TestCommandSpecsCount(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("missing command %q", name)
 		}
+	}
+}
+func TestProvidersConfigPathEnvOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	customPath := tmpDir + "/custom_providers_config.json"
+	data := []byte(`{
+		"groq": {
+			"apiKey": "gsk-test-123"
+		},
+		"cloudflare": {
+			"apiKey": "cf-token",
+			"accountId": "acc-456"
+		}
+	}`)
+	if err := os.WriteFile(customPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SUNFIRE_CONFIG_FILE", customPath)
+	if got := configPath(); got != customPath {
+		t.Errorf("configPath() = %q, want %q", got, customPath)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() failed: %v", err)
+	}
+	if cfg.Groq.APIKey != "gsk-test-123" {
+		t.Errorf("Groq.APIKey = %q, want gsk-test-123", cfg.Groq.APIKey)
+	}
+	if cfg.Cloudflare.AccountID != "acc-456" {
+		t.Errorf("Cloudflare.AccountID = %q, want acc-456", cfg.Cloudflare.AccountID)
 	}
 }

@@ -94,11 +94,22 @@ func NewClient(opts ...Option) (*Client, error) {
 // keyFromConfig reads the VENICE_ELYVENICE_API_KEY field from
 // $HOME/.private/config.json (or %USERPROFILE% on Windows).
 func keyFromConfig() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve home directory: %w", err)
+	path := os.Getenv("SUNFIRE_CONFIG_FILE")
+	if path == "" {
+		if home := os.Getenv("SUNFIRE_HOME"); home != "" {
+			p := filepath.Join(home, ".private", "config.json")
+			if _, err := os.Stat(p); err == nil {
+				path = p
+			}
+		}
 	}
-	path := filepath.Join(home, ".private", "config.json")
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot resolve home directory: %w", err)
+		}
+		path = filepath.Join(home, ".private", "config.json")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("no API key set: %s is unset and %s unreadable: %w", EnvKey, path, err)
