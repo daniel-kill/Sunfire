@@ -157,6 +157,7 @@ func (b *Bot) startWorkers(s *discordgo.Session) {
 		func(ctx context.Context) { startRSSNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startJobsNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startCareerBriefingDaemon(ctx, s) },
+		func(ctx context.Context) { startSubscriptionsNotifierDaemon(ctx, s) },
 	)
 }
 
@@ -215,6 +216,10 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		}
 		if strings.HasPrefix(data.CustomID, "emojigg:page:") {
 			handleEmojiGGPageComponent(s, i)
+			return
+		}
+		if strings.HasPrefix(data.CustomID, "sub:") {
+			handleSubscriptionComponent(s, i)
 			return
 		}
 

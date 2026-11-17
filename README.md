@@ -151,6 +151,26 @@ available emoji slot.
 
 The optional `repeat` setting accepts a positive duration such as `30m`, `1h`, `1d`, or `1w`. Repeats are fixed elapsed-time intervals; if the bot is offline across several occurrences, it delivers once and advances to the next future occurrence rather than sending a burst of missed reminders. Omitting `repeat` keeps the existing one-shot behavior. Reminders are stored in `SUNFIRE_DATA_DIR/Reminders/reminders.json` (or `Data/Reminders/reminders.json` by default); existing reminder files without a repeat field continue to load as one-shot reminders. Delivery and persistence use at-least-once semantics if saving state fails after Discord accepts a reminder, so a reminder can be delivered again after a failed save or restart.
 
+### Subscriptions & Recurring Bills
+
+`/subscriptions` tracks recurring cloud, SaaS, media, and productivity services with automated 7-day expiration DM alerts:
+
+- Subcommands:
+  - `/subscriptions list [filter] [sort]`: Lists active subscriptions with cost, cycle, countdowns, and total monthly/annual burn rate.
+  - `/subscriptions add <name> <cost> <renewal> [cycle] [category] [notes]`: Tracks a new recurring bill.
+  - `/subscriptions modify <id> [name] [cost] [renewal] [cycle] [category] [status] [notes]`: Modifies properties or marks Paused/Cancelled.
+  - `/subscriptions delete <id>`: Deletes a subscription.
+  - `/subscriptions renew <id>`: Advances next renewal date by one billing cycle after payment.
+  - `/subscriptions stats`: Financial dashboard showing monthly burn rate, projected annual spend, and category breakdown.
+  - `/subscriptions upcoming`: Quick view of renewals due within the next 30 days.
+  - `/subscriptions test-alert`: Sends an immediate test DM alert to preview expiration notifications.
+  - `/subscriptions import`: Imports entries from `/home/daniel/Repos/_temp/Subscriptions.txt`.
+- Alerts & Daemon:
+  - Scans active subscriptions every hour.
+  - Dispatches rich embed Direct Messages to the owner within 7 days of expiration (with 24-hour throttling to avoid spam).
+  - Includes interactive Discord action buttons (`[✅ Mark as Renewed]`, `[🛑 Cancelled]`) directly in the DM.
+- Storage: Saved to `Data/Subscriptions/subscriptions.json` (gitignored).
+
 ### Event-driven bot behavior
 
 Bot event handling is bound in `NewBot()`:
