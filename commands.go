@@ -63,9 +63,34 @@ func buildCommandSpecs() {
 		{
 			Command: &discordgo.ApplicationCommand{
 				Name:        "media",
-				Description: "Apply an FFmpeg effect to an uploaded image, audio, or video file.",
+				Description: "Apply FFmpeg effects to uploaded media or ingest streams via yt-dlp.",
 				Options: []*discordgo.ApplicationCommandOption{
-					{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "Media file to transform", Required: true},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "transform",
+						Description: "Apply an FFmpeg effect to an uploaded image, audio, or video file.",
+						Options: []*discordgo.ApplicationCommandOption{
+							{Type: discordgo.ApplicationCommandOptionAttachment, Name: "file", Description: "Media file to transform", Required: true},
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "download",
+						Description: "Download video or audio from YouTube, Twitch, Twitter, and other sites via yt-dlp.",
+						Options: []*discordgo.ApplicationCommandOption{
+							{Type: discordgo.ApplicationCommandOptionString, Name: "url", Description: "Media or stream URL to download", Required: true},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "format",
+								Description: "Target format (default: video)",
+								Required:    false,
+								Choices: []*discordgo.ApplicationCommandOptionChoice{
+									{Name: "Video (MP4)", Value: "video"},
+									{Name: "Audio (MP3)", Value: "audio"},
+								},
+							},
+						},
+					},
 				},
 			},
 			Handler: handleMedia,
@@ -831,13 +856,39 @@ func buildCommandSpecs() {
 							{Type: discordgo.ApplicationCommandOptionString, Name: "messageid", Description: "Message ID to fetch (from a search result)", Required: true},
 						},
 					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "query",
+						Description: "Run high-speed DuckDB SQL analytics against logged messages.",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "preset",
+								Description: "Analytical report preset to execute",
+								Required:    false,
+								Choices: []*discordgo.ApplicationCommandOptionChoice{
+									{Name: "Top Chatters & Deletions", Value: "top_chatters"},
+									{Name: "Daily Message Trends (14d)", Value: "daily_trends"},
+									{Name: "Most Active Channels", Value: "top_channels"},
+									{Name: "Bot vs Human Ratio", Value: "bot_ratio"},
+									{Name: "Longest Average Messages", Value: "longest_messages"},
+								},
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "sql",
+								Description: "Custom read-only SELECT query (use 'FROM logs' as table)",
+								Required:    false,
+							},
+						},
+					},
 				},
 			},
 			Handler: handleMessageLog,
 		},
 	}
 
-	commandSpecs = append(commandSpecs, openRouterCommandSpec(), careerCommandSpec(), subscriptionsCommandSpec())
+	commandSpecs = append(commandSpecs, openRouterCommandSpec(), careerCommandSpec(), subscriptionsCommandSpec(), dockerCommandSpec(), fleetCommandSpec())
 
 	for _, spec := range a2e.CommandSpecs() {
 		commandSpecs = append(commandSpecs, commandSpec{Command: spec.Command, Handler: spec.Handler})
@@ -918,7 +969,7 @@ var helpCategories = []helpCategory{
 	{Value: "moderation", Label: "Moderation & Staff", Commands: []string{
 		"automod", "warn", "timeout", "kick", "ban", "unban", "mute", "unmute", "purge", "note",
 		"role", "rolemenu", "autorole", "ticket-panel", "close-ticket", "message-log", "backup", "channel",
-		"dedup", "grant-access", "prunelogs", "searchlogs", "setup",
+		"dedup", "docker", "fleet", "grant-access", "prunelogs", "searchlogs", "setup",
 		"slowmode",
 	}},
 	{Value: "mistral", Label: "Mistral", Commands: []string{"mistral"}},

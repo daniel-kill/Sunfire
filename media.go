@@ -184,16 +184,38 @@ func mediaEffects(kind mediaKind) []mediaEffect {
 
 func handleMedia(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	app := i.ApplicationCommandData()
+	if len(app.Options) > 0 && app.Options[0].Type == discordgo.ApplicationCommandOptionSubCommand {
+		sub := app.Options[0]
+		if sub.Name == "download" {
+			if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			}); err != nil {
+				log.Printf("[media/download] failed to acknowledge interaction: %v", err)
+				return
+			}
+			handleMediaDownload(s, i, sub)
+			return
+		}
+		if sub.Name == "transform" {
+			handleMediaTransform(s, i, sub.Options, app.Resolved)
+			return
+		}
+	}
+
+	handleMediaTransform(s, i, app.Options, app.Resolved)
+}
+
+func handleMediaTransform(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption, resolved *discordgo.ApplicationCommandInteractionDataResolved) {
 	attachmentID := ""
-	for _, option := range app.Options {
+	for _, option := range options {
 		if option.Name == "file" {
 			attachmentID, _ = option.Value.(string)
 			break
 		}
 	}
 	var attachment *discordgo.MessageAttachment
-	if app.Resolved != nil {
-		attachment = app.Resolved.Attachments[attachmentID]
+	if resolved != nil {
+		attachment = resolved.Attachments[attachmentID]
 	}
 	if attachmentID == "" || attachment == nil {
 		respondMedia(s, i, "❌ Please attach a media file.")
@@ -253,9 +275,9 @@ func handleMedia(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	options := make([]discordgo.SelectMenuOption, 0, len(mediaEffects(kind)))
+	selectOptions := make([]discordgo.SelectMenuOption, 0, len(mediaEffects(kind)))
 	for _, effect := range mediaEffects(kind) {
-		options = append(options, discordgo.SelectMenuOption{
+		selectOptions = append(selectOptions, discordgo.SelectMenuOption{
 			Label: effect.label,
 			Value: effect.value,
 		})
@@ -266,7 +288,7 @@ func handleMedia(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				MenuType:    discordgo.StringSelectMenu,
 				CustomID:    "media:" + sessionID,
 				Placeholder: "Choose one of the available transformations",
-				Options:     options,
+				Options:     selectOptions,
 				MaxValues:   1,
 			},
 		}},

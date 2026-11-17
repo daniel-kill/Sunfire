@@ -24,8 +24,20 @@ func TestMediaCommandAndTransformMenus(t *testing.T) {
 	if command == nil {
 		t.Fatal("/media is not registered")
 	}
-	if len(command.Options) != 1 || command.Options[0].Type != discordgo.ApplicationCommandOptionAttachment || !command.Options[0].Required {
-		t.Fatalf("/media options = %#v, want one required attachment option", command.Options)
+	if len(command.Options) != 2 {
+		t.Fatalf("/media options = %#v, want 2 subcommands (transform and download)", command.Options)
+	}
+	subcommands := make(map[string]*discordgo.ApplicationCommandOption)
+	for _, opt := range command.Options {
+		subcommands[opt.Name] = opt
+	}
+	transformOpt := subcommands["transform"]
+	if transformOpt == nil || len(transformOpt.Options) != 1 || transformOpt.Options[0].Type != discordgo.ApplicationCommandOptionAttachment || !transformOpt.Options[0].Required {
+		t.Fatalf("subcommand transform = %#v, want one required attachment option", transformOpt)
+	}
+	downloadOpt := subcommands["download"]
+	if downloadOpt == nil || len(downloadOpt.Options) < 1 || downloadOpt.Options[0].Type != discordgo.ApplicationCommandOptionString || !downloadOpt.Options[0].Required {
+		t.Fatalf("subcommand download = %#v, want required url option", downloadOpt)
 	}
 
 	for _, kind := range []mediaKind{mediaImage, mediaAudio, mediaVideo} {

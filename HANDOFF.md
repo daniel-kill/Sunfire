@@ -20,10 +20,11 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
 | **Gateway & Dispatch** | `main.go`, `bot.go`, `commands.go` | DiscordGo session lifecycle; guild-scoped slash command registration; public vs restricted access control (`command_access.go`). |
 | **Career Copilot** | `career.go`, `career_test.go` | Job application pipeline (`/career track`, `/career list`), AI resume fit analysis (`/career analyze`), cover letter generator (`/career cover-letter`), certification roadmap (`/career certs`), and daily follow-up alerts (`/career followups`). |
 | **Subscriptions & Bills** | `subscriptions.go` | Recurring bill tracking (`/subscriptions`), monthly burn rate dashboard, hourly scanner, 7-day expiration DM alerts with interactive action buttons (`[✅ Mark as Renewed]`, `[🛑 Cancelled]`). |
-| **Media Processing** | `media.go`, `media_logger.go` | 25-transformation FFmpeg interactive picker (`/media`), format transcoding (MP4, WebM, MP3, Opus), lossless optimization, GIF creation, and LUFS normalization. |
+| **Media Processing** | `media.go`, `media_downloader.go`, `media_logger.go` | 25-transformation FFmpeg interactive picker (`/media transform`), stream & clip ingestion via yt-dlp (`/media download`), format transcoding, lossless optimization, and LUFS normalization. |
+| **Fleet & System Ops** | `docker_manager.go`, `fleet_manager.go`, `sysinfo.go` | Ephemeral Docker container fleet manager (`/docker`), Git fleet health and dirty tree monitor (`/fleet`), and NVIDIA GPU / thermal telemetry (`/sysinfo`). |
 | **AI & Multi-Provider** | `providers/`, `venice/`, `a2e/`, `openrouter.go` | Venice AI suite (`/venice music` Minimax v26, chat, image, transcription), OpenRouter streaming LLM gateway, and A2E audio integration. |
 | **Reminders & Workers** | `reminders.go`, `service.go`, `health_checker.go` | Cancellable background workers; recurring reminders with duration intervals (`30m`, `1h`, `1d`, `1w`) and timezone support; external URL health probing. |
-| **Audit & Moderation** | `automod.go`, `message_logger.go`, `message_log.go`, `data_pruner.go` | Substring AutoMod with event logging to `Data/AutoModEvents/`; local JSONL message archiving; automated rolling retention, gzip archiving to `Data/Archives/`, and size-based media pruning (`/prunelogs`). |
+| **Audit & Moderation** | `automod.go`, `message_logger.go`, `message_log.go`, `data_pruner.go`, `log_analytics.go` | Substring AutoMod with event logging to `Data/AutoModEvents/`; local JSONL message archiving; automated rolling retention, gzip archiving to `Data/Archives/`, size-based media pruning (`/prunelogs`), and DuckDB SQL analytics (`/message-log query`). |
 
 ---
 
@@ -43,6 +44,13 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
   - Unified subpackage configuration resolution across `a2e/`, `providers/`, `venice/`, and `modules/` via `SUNFIRE_CONFIG_FILE`.
   - Built automated rolling retention, size-based media pruning, and gzip archiving daemon (`data_pruner.go`, `/prunelogs`).
   - Added native pure-Go PDF resume extraction (`github.com/dslipak/pdf`) to `/career analyze` and `/career match` with support for uploaded resume attachments.
+- [x] **Host Tooling & Fleet Integration Completed:**
+  - 🎮 Integrated live NVIDIA GPU model, VRAM budget, temperature (°C), and core compute load telemetry into `/sysinfo` (`sysinfo.go`, `sysinfo_unix.go`, `sysinfo_windows.go`, `sysinfo_test.go`).
+  - 🐳 Built ephemeral Docker Fleet & Container Manager (`/docker status`, `restart`, `start`, `stop`, `logs`) (`docker_manager.go`, `docker_manager_test.go`).
+  - 🌐 Built Git Fleet Health & Multi-Repo Monitor (`/fleet status`, `repo`) scanning all 14 repositories with GPG verification indicators (`fleet_manager.go`, `fleet_manager_test.go`).
+  - 🎬 Built Stream & Clip Ingestion via yt-dlp (`/media download`) with FFmpeg compression under 25 MiB for Discord attachments (`media_downloader.go`, `media_downloader_test.go`).
+  - 🦆 Built High-Speed Message Log Analytics via DuckDB (`/message-log query`) with box-table formatting, 5 analytical presets, and read-only custom SQL validation (`log_analytics.go`, `log_analytics_test.go`).
+  - Recompiled binary, restarted `sunfire.service`, and verified all daemons and handlers healthy.
 - [x] Completely updated core repository documentation: [README.md](README.md), [AGENTS.md](AGENTS.md), [HANDOFF.md](HANDOFF.md), and [ROADMAP.md](ROADMAP.md).
 
 ---

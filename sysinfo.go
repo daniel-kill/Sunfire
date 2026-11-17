@@ -65,6 +65,7 @@ func handleSysInfo(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			{Name: "⏱️ OS Uptime", Value: uptimeStr, Inline: true},
 			{Name: "⚙️ CPU Info", Value: getCPUInfo(), Inline: true},
 			{Name: "🧠 Host Memory", Value: fmt.Sprintf("Total: %s\nAvail: %s", memTotal, memAvail), Inline: true},
+			{Name: "🎮 Dedicated GPU", Value: getGPUTelemetry(), Inline: true},
 			{Name: "💾 Disk Space (Root)", Value: getDiskInfo(), Inline: true},
 			{Name: "📈 CPU Load (1, 5, 15m)", Value: loadAvg, Inline: true},
 			{Name: "🤖 Bot Process", Value: fmt.Sprintf("RAM: %s\nGoroutines: %s", botMem, goroutines), Inline: true},
@@ -132,4 +133,37 @@ func getCPUInfo() string {
 	}
 	
 	return fmt.Sprintf("%s\n**%d Cores**", model, cores)
-}
+}
+
+// parseNvidiaSmiOutput parses comma-separated output from nvidia-smi:
+// name, memory.total, memory.used, temperature.gpu, utilization.gpu
+func parseNvidiaSmiOutput(raw string) string {
+	line := strings.TrimSpace(raw)
+	if line == "" {
+		return "No dedicated GPU detected"
+	}
+	if idx := strings.Index(line, "\n"); idx != -1 {
+		line = strings.TrimSpace(line[:idx])
+	}
+	parts := strings.Split(line, ",")
+	if len(parts) < 5 {
+		return "GPU telemetry unavailable"
+	}
+	name := strings.TrimSpace(parts[0])
+	total, errTotal := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	used, errUsed := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+	temp := strings.TrimSpace(parts[3])
+	util := strings.TrimSpace(parts[4])
+
+	if errTotal != nil || errUsed != nil {
+		return fmt.Sprintf("**%s**\nTemp: %s°C • Load: %s%%", name, temp, util)
+	}
+
+	pct := 0.0
+	if total > 0 {
+		pct = (used / total) * 100
+	}
+
+	return fmt.Sprintf("**%s**\nVRAM: %.0f / %.0f MB (%.1f%%)\nTemp: %s°C • Load: %s%%", name, used, total, pct, temp, util)
+}
+

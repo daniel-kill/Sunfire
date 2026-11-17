@@ -756,5 +756,7 @@ func handleMessageLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			},
 			Flags: discordgo.MessageFlagsEphemeral,
 		})
+	case "query":
+		handleMessageLogQuery(s, i, sub)
 	}
 }

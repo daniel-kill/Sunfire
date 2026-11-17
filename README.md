@@ -110,15 +110,26 @@ Financial oversight and automated renewal alert daemon:
 - **Interactive Action Buttons:** Direct Message alerts include interactive Discord buttons (`[✅ Mark as Renewed]`, `[🛑 Cancelled]`) for 1-click renewal advancement.
 - **Persistence:** Stored under `Data/Subscriptions/subscriptions.json`.
 
-### 3. Media Processing Suite (`media.go`)
-- `/media file:<attachment>` downloads audio, image, or video attachments and presents an interactive private picker with up to **25 FFmpeg transformations**.
+### 3. Media Processing Suite (`media.go`, `media_downloader.go`)
+- `/media transform file:<attachment>` downloads audio, image, or video attachments and presents an interactive private picker with up to **25 FFmpeg transformations**.
+- `/media download url:<url> [format:video|audio]` ingests streams and clips from YouTube, Twitch, Twitter/X, and 1,000+ sites via `yt-dlp` and FFmpeg with automatic 25 MiB Discord compression.
 - **Supported Operations:** Lossless PNG/H.264 optimization, dimension scaling (width/height), audio extraction, audio normalization (LUFS), video-to-GIF conversion, format transcoding (MP4, WebM, MKV, MP3, WAV, FLAC, Opus).
-- **Constraints:** Input/output files capped at 25 MiB; temporary artifacts auto-deleted after 15 minutes. Requires `ffmpeg` and `ffprobe` on host.
+- **Constraints:** Input/output files capped at 25 MiB; temporary artifacts auto-deleted after 15 minutes. Requires `ffmpeg` and `yt-dlp` on host.
 
 ### 4. Multi-Provider AI Architecture (`providers/`, `venice/`, `a2e/`)
 - **Venice AI Suite:** `/venice music` (music synthesis via `minimax-music-v26` with cost quoting and automatic audio cleanup), image generation, chat, and transcription.
 - **OpenRouter & LLM Gateways:** Multi-provider inference across Groq, Gemini, DeepSeek, and Mistral with streaming and rate-limit backoff.
 - **A2E Integration:** Automated audio processing and task-polling integration.
+
+### 5. Host Fleet & DevOps Management (`docker_manager.go`, `fleet_manager.go`, `sysinfo.go`)
+- **Docker Fleet & Container Manager (`/docker`):** Ephemeral admin command inspecting host container health (`/docker status`), lifecycle control (`/docker start`, `/docker stop`, `/docker restart`), and tailing container logs (`/docker logs <container> [lines]`).
+- **Git Fleet Health Monitor (`/fleet`):** Multi-repo monitor scanning all active repositories in `/home/daniel/Repos/` (`/fleet status`), tracking active branches, uncommitted dirty files, and unpushed commits ahead of origin. `/fleet repo <name>` displays detailed branch remotes and recent commits with GPG signature verification badges (`🔐 GPG`, `❌ Bad Sig`, `⚪ Unsigned`).
+- **NVIDIA GPU & Thermal Telemetry (`/sysinfo`):** Live telemetry integration querying `nvidia-smi` for dedicated GPU model, VRAM utilization (MB and %), GPU thermals (°C), and core compute load (%).
+
+### 6. High-Speed Log Analytics & Search (`log_analytics.go`, `message_log.go`)
+- **DuckDB SQL Engine (`/message-log query`):** High-speed in-process analytical queries executed against JSON message logs with box-table formatting.
+- **Analytical Presets:** `top_chatters` (most active senders & deletions), `daily_trends` (14-day message volume), `top_channels`, `bot_ratio` (human vs bot percentage), and `longest_messages`.
+- **Custom SQL Support:** Validated read-only `SELECT` / `WITH` queries over `FROM logs` with strict rejection of destructive DDL/DML tokens.
 
 ### 5. Automated Background Notifiers
 Managed via `service.go` using cancellable goroutines with at-least-once delivery semantics:
