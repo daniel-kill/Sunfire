@@ -399,29 +399,38 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			job.ID = hash
 		}
 
+		job.Title = strings.TrimPrefix(job.Title, "💼 ")
+		job.Title = strings.TrimSpace(job.Title)
+
 		if job.Title == "" && job.Company == "" {
-			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					Content: "❌ Could not retrieve details for this job alert. Try logging it via `/career apply`.",
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
-			})
+			}); err != nil {
+				log.Printf("career: error responding to empty job:track: %v", err)
+			}
 			return
 		}
 
 		careerMu.Lock()
 		// Check for existing application by company & title
 		for _, app := range careerStore.Applications {
-			if strings.EqualFold(app.Organization, job.Company) && strings.EqualFold(app.Position, job.Title) {
+			cleanAppPos := strings.TrimPrefix(app.Position, "💼 ")
+			cleanAppPos = strings.TrimSpace(cleanAppPos)
+			if strings.EqualFold(app.Organization, job.Company) && (strings.EqualFold(app.Position, job.Title) || strings.EqualFold(cleanAppPos, job.Title)) {
 				careerMu.Unlock()
-				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: fmt.Sprintf("ℹ️ You already have **%s** at **%s** tracked in your pipeline (Status: `%s`).", app.Position, app.Organization, app.Status),
 						Flags:   discordgo.MessageFlagsEphemeral,
 					},
-				})
+				}); err != nil {
+					log.Printf("career: error responding to duplicate job:track: %v", err)
+				}
 				return
 			}
 		}
@@ -442,7 +451,9 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			UpdatedAt:    now,
 		}
 		careerStore.Applications = append([]JobApplication{newApp}, careerStore.Applications...)
-		_ = saveCareerStoreLocked()
+		if err := saveCareerStoreLocked(); err != nil {
+			log.Printf("career: failed to save career store: %v", err)
+		}
 		careerMu.Unlock()
 
 		// Schedule a reminder in reminders system if invoker is available
@@ -459,13 +470,15 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		msg := fmt.Sprintf("✅ **Saved to Career Pipeline!**\n\n📌 **Role:** %s\n🏢 **Company:** %s\n⏳ **Status:** Saved / Queued\n🔔 **Follow-up Scheduled:** %s (in 7 days)\n\nUse `/career status` to manage your active applications.",
 			job.Title, job.Company, newApp.FollowUpDate.Format("Mon, Jan 02"))
 
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: msg,
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
-		})
+		}); err != nil {
+			log.Printf("career: error responding to job:track button: %v", err)
+		}
 		return
 	}
 
@@ -516,9 +529,9 @@ func handleJobComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // scheduleCareerFollowUp adds a reminder to Sunfire's native reminders system.
 func scheduleCareerFollowUp(channelID, userID, company, position string, fireTime time.Time) {
+	_ = loadReminders()
 	remindersMu.Lock()
 	defer remindersMu.Unlock()
-	_ = loadReminders()
 	reminders = append(reminders, Reminder{
 		ID:        newReminderID(reminders, fireTime),
 		UserID:    userID,
@@ -526,7 +539,9 @@ func scheduleCareerFollowUp(channelID, userID, company, position string, fireTim
 		Message:   fmt.Sprintf("🔔 **Career Follow-Up Due:** It's been 7 days since you saved/applied for **%s** at **%s**. Have you followed up or heard from the hiring team?", position, company),
 		FireTime:  fireTime,
 	})
-	_ = saveReminders()
+	if err := saveReminders(); err != nil {
+		log.Printf("career: error saving follow-up reminder: %v", err)
+	}
 }
 
 // performAIFitAnalysis compares job details with authoritative resume using Sunfire's LLM routing.

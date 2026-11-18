@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -53,6 +54,20 @@ func TestCareerStoreInitialization(t *testing.T) {
 	// Verify Cert Goals (Certificate Planning.ods)
 	if len(careerStore.CertGoals) < 5 {
 		t.Errorf("expected at least 5 certification roadmap items, got %d", len(careerStore.CertGoals))
+	}
+}
+
+func TestScheduleCareerFollowUp(t *testing.T) {
+	done := make(chan bool)
+	go func() {
+		scheduleCareerFollowUp("channel123", "user123", "TestCo", "Engineer", time.Now().Add(time.Hour))
+		done <- true
+	}()
+	select {
+	case <-done:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("DEADLOCK DETECTED in scheduleCareerFollowUp: remindersMu double lock!")
 	}
 }
 
