@@ -151,6 +151,7 @@ func (b *Bot) startWorkers(s *discordgo.Session) {
 		func(ctx context.Context) { startSpotifyNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startMoviesNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startFreeStuffNotifierDaemon(ctx, s) },
+		func(ctx context.Context) { startNistNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startScrapeImagesDaemon(ctx, s) },
 		func(ctx context.Context) { startBirthdayNotifierDaemon(ctx, s) },
 		func(ctx context.Context) { startHermesTipsDaemon(ctx, s) },

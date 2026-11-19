@@ -153,7 +153,7 @@ func buildCommandSpecs() {
 			},
 			Handler: handlePurge,
 		},
-		{Command: &discordgo.ApplicationCommand{Name: "setup", Description: "Create private Sunfire category/logs, read-only INFO/rules, and Feeds & Media channels (YouTube, Spotify, Movies, FreeStuff, Kick, NIST)."}, Handler: handleSetup},
+		{Command: &discordgo.ApplicationCommand{Name: "setup", Description: "Create Sunfire staff, rules, and Feeds & Media channels (including NIST NVD feed)."}, Handler: handleSetup},
 		{Command: &discordgo.ApplicationCommand{Name: "dedup", Description: "Run SHA-256 duplicate media cleanup on server media logs."}, Handler: handleDedup},
 		{Command: &discordgo.ApplicationCommand{Name: "prunelogs", Description: "Run automated message and media log pruning and archival pass."}, Handler: handlePruneLogs},
 		{
@@ -584,6 +584,7 @@ func buildCommandSpecs() {
 									{Name: "Spotify", Value: "spotify"},
 									{Name: "Movies (TMDB)", Value: "movies"},
 									{Name: "FreeStuff (GG.deals)", Value: "freestuff"},
+									{Name: "NIST (NVD)", Value: "nist"},
 									{Name: "Hermes Tips", Value: "hermes"},
 									{Name: "Image Scrape", Value: "scrape"},
 								},
@@ -1988,9 +1989,13 @@ func AuditSetupWorkflow(channels []*discordgo.Channel) (existing []SetupWorkflow
 	}
 
 	channelExists := func(parentID, name string) bool {
+		target := strings.ToLower(name)
 		for _, ch := range channels {
-			if ch.ParentID == parentID && strings.EqualFold(ch.Name, name) {
-				return true
+			if ch.ParentID == parentID {
+				chLower := strings.ToLower(ch.Name)
+				if chLower == target || strings.HasSuffix(chLower, target) || strings.Contains(chLower, target) {
+					return true
+				}
 			}
 		}
 		return false
@@ -2080,9 +2085,13 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if parentID == "" {
 			return nil
 		}
+		target := strings.ToLower(name)
 		for _, ch := range guildChannels {
-			if ch.ParentID == parentID && strings.EqualFold(ch.Name, name) {
-				return ch
+			if ch.ParentID == parentID {
+				chLower := strings.ToLower(ch.Name)
+				if chLower == target || strings.HasSuffix(chLower, target) || strings.Contains(chLower, target) {
+					return ch
+				}
 			}
 		}
 		return nil
@@ -2492,8 +2501,9 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **NIST (NVD) channel**: created <#%s>", newID))
 	} else if newID != "" {
-		if gCfg.NistChannelID != newID {
+		if gCfg.NistChannelID != newID || !gCfg.NistEnabled {
 			gCfg.NistChannelID = newID
+			gCfg.NistEnabled = true
 			gCfgModified = true
 		}
 		statusMessages = append(statusMessages, fmt.Sprintf("• **NIST (NVD) channel**: <#%s> (exists)", newID))
@@ -2625,6 +2635,8 @@ func handleNotifiersCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 				checkMoviesUpdates(s, cfg)
 			case "freestuff":
 				checkFreeStuffUpdates(s, cfg)
+			case "nist":
+				checkNistUpdates(s, cfg)
 			case "hermes":
 				_, _ = checkHermesTipsUpdates(s)
 			case "scrape":
