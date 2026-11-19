@@ -40,6 +40,9 @@ type GuildSettings struct {
 	FreeStuffEnabled             bool                   `json:"freeStuffEnabled"`
 	FreeStuffChannelID           string                 `json:"freeStuffChannelId"`
 	FreeStuffRoleID              *string                `json:"freeStuffRoleId"`
+	NistEnabled                  bool                   `json:"nistEnabled"`
+	NistChannelID                string                 `json:"nistChannelId"`
+	NistRoleID                   *string                `json:"nistRoleId"`
 	RSSFeedsEnabled              bool                   `json:"rssFeedsEnabled"`
 	RSSFeedsChannelID            string                 `json:"rssFeedsChannelId"`
 	RSSFeedsRoleID               *string                `json:"rssFeedsRoleId"`

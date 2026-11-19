@@ -51,6 +51,13 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
   - 🎬 Built Stream & Clip Ingestion via yt-dlp (`/media download`) with FFmpeg compression under 25 MiB for Discord attachments (`media_downloader.go`, `media_downloader_test.go`).
   - 🦆 Built High-Speed Message Log Analytics via DuckDB (`/message-log query`) with box-table formatting, 5 analytical presets, and read-only custom SQL validation (`log_analytics.go`, `log_analytics_test.go`).
   - Recompiled binary, restarted `sunfire.service`, and verified all daemons and handlers healthy.
+- [x] **Setup Workflow Idempotency & NIST NVD Feed Channel:**
+  - Expanded `/setup` workflow to include the `#nist` channel (National Vulnerability Database: https://nvd.nist.gov/) under the read-only `Feeds & Media` category.
+  - Implemented channel auditing (`AuditSetupWorkflow`) so running `/setup` again inspects the server, verifies existing channels, and automatically creates any missing channels or categories without duplicating existing ones.
+  - Added `NistEnabled`, `NistChannelID`, and `NistRoleID` to `GuildSettings` (`guild_config.go`) and forward-compatible `NistAPIKey` and `NistPollIntervalMs` to `Config` (`config.go`).
+  - Updated `/notifiers status` embed and description to include NIST NVD configuration state.
+  - Added automated unit test suite in `setup_test.go` verifying catalog definitions, full-missing scenario, partial/NIST detection, and JSON configuration serialization.
+  - Recompiled binary and restarted systemd user service (`sunfire.service`).
 - [x] Completely updated core repository documentation: [README.md](README.md), [AGENTS.md](AGENTS.md), [HANDOFF.md](HANDOFF.md), and [ROADMAP.md](ROADMAP.md).
 
 ---

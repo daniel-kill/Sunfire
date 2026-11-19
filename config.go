@@ -27,6 +27,7 @@ type Config struct {
 	LoggingChannel      string            `json:"loggingChannelId"`
 	OwnerID             string            `json:"ownerId"`
 	AdminIDs            []string          `json:"adminIds,omitempty"`
+	SunfireCategoryID   string            `json:"sunfireCategoryId,omitempty"`
 	InfoCategoryID      string            `json:"infoCategoryId,omitempty"`
 	RulesChannelID      string            `json:"rulesChannelId,omitempty"`
 	VoiceChannelID      string            `json:"voiceChannelId,omitempty"`
@@ -73,6 +74,8 @@ type Config struct {
 	RSSFeedsPollIntervalMs   int             `json:"RSS_FEEDS_POLL_INTERVAL"`
 	JobsPollIntervalMs       int             `json:"JOBS_POLL_INTERVAL"`
 	JobsURLs                 []string        `json:"jobsUrls,omitempty"`
+	NistAPIKey               string          `json:"NIST_API_KEY,omitempty"`
+	NistPollIntervalMs       int             `json:"NIST_POLL_INTERVAL,omitempty"`
 	Scrape                   ScrapeConfig    `json:"scrape"`
 	Guild                    GuildSettings   `json:"guild"`
 	DataPrune                DataPruneConfig `json:"dataPrune"`

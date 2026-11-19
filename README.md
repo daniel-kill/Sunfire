@@ -180,6 +180,7 @@ Sunfire/
 ├── notifier_*.go                   # External polling daemons (YouTube, Kick, RSS, movies, freebies)
 ├── reminders.go                    # Recurring and one-shot reminder scheduler
 ├── service.go                      # Cancellable background worker orchestration
+├── setup_test.go                   # Verification suite for /setup workflow and channel idempotency
 ├── subscriptions.go                # Recurring bill management and 7-day DM alert daemon
 ├── AGENTS.md                       # Operational rules and agent contract
 ├── HANDOFF.md                      # Active operational state and task handoff
@@ -221,6 +222,30 @@ wsl.exe -d daniel-kill -e bash -c "cd /home/daniel/Repos/Sunfire && /usr/local/g
 # Compile binary
 wsl.exe -d daniel-kill -e bash -c "cd /home/daniel/Repos/Sunfire && /usr/local/go/bin/go build -o Sunfire ."
 ```
+
+---
+
+## Server Infrastructure Workflow (`/setup`)
+
+The `/setup` slash command prepares and audits the standard Sunfire Discord server category and channel topology:
+
+1. **Private Sunfire Category (`Sunfire`):**
+   - Restricted to server staff (`@everyone` denied View and Send).
+   - `#chats`: Private staff text channel.
+   - `#logs`: Real-time system, moderation, and event logging (`loggingChannelId`).
+2. **Read-Only Information Category (`INFO`):**
+   - Public view, read-only (`@everyone` denied Send/Threads/Reactions).
+   - `#rules`: Pinned server rules, community guidelines, and Discord ToS embed.
+3. **Read-Only Feeds & Media Category (`Feeds & Media`):**
+   - Automatically provisions dedicated notification channels with service topics:
+     - `#youtube`: YouTube channel uploads and alerts.
+     - `#spotify`: Track, playlist, and artist updates.
+     - `#movies`: TMDB theatrical and streaming releases.
+     - `#free-stuff`: GG.deals free game drops and discounts.
+     - `#kick-streams`: Live stream alerts.
+     - `#nist`: National Vulnerability Database CVE alerts ([nvd.nist.gov](https://nvd.nist.gov/)).
+
+> **Idempotent Channel Audit:** If `/setup` is executed again, it inspects existing guild channels (`AuditSetupWorkflow`), preserves existing channels without duplicate creation, and automatically provisions any missing channels from the workflow.
 
 ---
 

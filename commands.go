@@ -153,7 +153,7 @@ func buildCommandSpecs() {
 			},
 			Handler: handlePurge,
 		},
-		{Command: &discordgo.ApplicationCommand{Name: "setup", Description: "Create private Sunfire category/logs and read-only INFO/rules channels."}, Handler: handleSetup},
+		{Command: &discordgo.ApplicationCommand{Name: "setup", Description: "Create private Sunfire category/logs, read-only INFO/rules, and Feeds & Media channels (YouTube, Spotify, Movies, FreeStuff, Kick, NIST)."}, Handler: handleSetup},
 		{Command: &discordgo.ApplicationCommand{Name: "dedup", Description: "Run SHA-256 duplicate media cleanup on server media logs."}, Handler: handleDedup},
 		{Command: &discordgo.ApplicationCommand{Name: "prunelogs", Description: "Run automated message and media log pruning and archival pass."}, Handler: handlePruneLogs},
 		{
@@ -566,7 +566,7 @@ func buildCommandSpecs() {
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
 						Name:        "status",
-						Description: "Show status of YouTube, Kick, Spotify, Movies, FreeStuff, & Scrape notifiers.",
+						Description: "Show status of YouTube, Kick, Spotify, Movies, FreeStuff, NIST, & Scrape notifiers.",
 					},
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -1950,6 +1950,71 @@ func handlePurge(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
+// SetupWorkflowItem describes a category or channel managed by the /setup workflow.
+type SetupWorkflowItem struct {
+	Category    string
+	Name        string // empty if item is the category itself
+	DisplayName string
+	IsCategory  bool
+	ParentName  string
+}
+
+// GetSetupWorkflowItems returns the canonical catalog of all categories and channels created by /setup.
+func GetSetupWorkflowItems() []SetupWorkflowItem {
+	return []SetupWorkflowItem{
+		{Category: "Sunfire", IsCategory: true, DisplayName: "Sunfire Category"},
+		{Category: "Sunfire", Name: "chats", ParentName: "Sunfire", DisplayName: "Chats Channel"},
+		{Category: "Sunfire", Name: "logs", ParentName: "Sunfire", DisplayName: "Logs Channel"},
+		{Category: "INFO", IsCategory: true, DisplayName: "INFO Category"},
+		{Category: "INFO", Name: "rules", ParentName: "INFO", DisplayName: "Rules Channel"},
+		{Category: "Feeds & Media", IsCategory: true, DisplayName: "Feeds & Media Category"},
+		{Category: "Feeds & Media", Name: "youtube", ParentName: "Feeds & Media", DisplayName: "YouTube Channel"},
+		{Category: "Feeds & Media", Name: "spotify", ParentName: "Feeds & Media", DisplayName: "Spotify Channel"},
+		{Category: "Feeds & Media", Name: "movies", ParentName: "Feeds & Media", DisplayName: "Movies Channel"},
+		{Category: "Feeds & Media", Name: "free-stuff", ParentName: "Feeds & Media", DisplayName: "FreeStuff Channel"},
+		{Category: "Feeds & Media", Name: "kick-streams", ParentName: "Feeds & Media", DisplayName: "Kick Streams Channel"},
+		{Category: "Feeds & Media", Name: "nist", ParentName: "Feeds & Media", DisplayName: "NIST (NVD) Channel"},
+	}
+}
+
+// AuditSetupWorkflow audits an existing list of Discord channels against the setup workflow
+// and returns which items are present and which are missing.
+func AuditSetupWorkflow(channels []*discordgo.Channel) (existing []SetupWorkflowItem, missing []SetupWorkflowItem) {
+	categories := make(map[string]string) // name.ToLower() -> ID
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildCategory {
+			categories[strings.ToLower(ch.Name)] = ch.ID
+		}
+	}
+
+	channelExists := func(parentID, name string) bool {
+		for _, ch := range channels {
+			if ch.ParentID == parentID && strings.EqualFold(ch.Name, name) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, item := range GetSetupWorkflowItems() {
+		if item.IsCategory {
+			if _, ok := categories[strings.ToLower(item.Category)]; ok {
+				existing = append(existing, item)
+			} else {
+				missing = append(missing, item)
+			}
+		} else {
+			parentID, parentExists := categories[strings.ToLower(item.ParentName)]
+			if parentExists && channelExists(parentID, item.Name) {
+				existing = append(existing, item)
+			} else {
+				missing = append(missing, item)
+			}
+		}
+	}
+	return existing, missing
+}
+
 func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 	if guildID == "" {
@@ -1988,6 +2053,12 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		everyoneRoleID = guild.ID
 	}
 
+	guildChannels, err := s.GuildChannels(guildID)
+	if err != nil {
+		respondMsg("❌ Could not fetch guild channels: " + err.Error())
+		return
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		cfg = &Config{}
@@ -1996,54 +2067,47 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cfgModified := false
 	var statusMessages []string
 
-	// 1. Private Sunfire category + chats/logs channels.
-	// If loggingChannelId already exists in config.json, do not recreate them.
-	if cfg.LoggingChannel != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Logs channel**: <#%s> (already exists in config, skipped creation)", cfg.LoggingChannel))
-	} else {
-		categoryName := "Sunfire"
-		category, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-			Name: categoryName,
-			Type: discordgo.ChannelTypeGuildCategory,
-			PermissionOverwrites: []*discordgo.PermissionOverwrite{
-				{
-					Type:  discordgo.PermissionOverwriteTypeRole,
-					ID:    everyoneRoleID,
-					Allow: 0,
-					Deny:  1024 | 2048,
-				},
-			},
-		})
-		if err != nil {
-			respondMsg("❌ Failed to create Sunfire category: " + err.Error())
-			return
+	findCategory := func(name string) *discordgo.Channel {
+		for _, ch := range guildChannels {
+			if ch.Type == discordgo.ChannelTypeGuildCategory && strings.EqualFold(ch.Name, name) {
+				return ch
+			}
 		}
+		return nil
+	}
 
-		_, err = s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-			Name:                 "chats",
-			Type:                 discordgo.ChannelTypeGuildText,
-			ParentID:             category.ID,
-			PermissionOverwrites: category.PermissionOverwrites,
-		})
-		if err != nil {
-			respondMsg("❌ Failed to create chats channel: " + err.Error())
-			return
+	findChannelUnder := func(parentID string, name string) *discordgo.Channel {
+		if parentID == "" {
+			return nil
 		}
-
-		logsChannel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-			Name:                 "logs",
-			Type:                 discordgo.ChannelTypeGuildText,
-			ParentID:             category.ID,
-			PermissionOverwrites: category.PermissionOverwrites,
-		})
-		if err != nil {
-			respondMsg("❌ Failed to create logs channel: " + err.Error())
-			return
+		for _, ch := range guildChannels {
+			if ch.ParentID == parentID && strings.EqualFold(ch.Name, name) {
+				return ch
+			}
 		}
+		return nil
+	}
 
-		cfg.LoggingChannel = logsChannel.ID
-		cfgModified = true
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Sunfire category**: created private category with #chats and #logs (<#%s>)", logsChannel.ID))
+	findChannelByID := func(id string) *discordgo.Channel {
+		if id == "" {
+			return nil
+		}
+		for _, ch := range guildChannels {
+			if ch.ID == id {
+				return ch
+			}
+		}
+		return nil
+	}
+
+	// Permission overwrites for Sunfire private category
+	privateOverwrites := []*discordgo.PermissionOverwrite{
+		{
+			Type:  discordgo.PermissionOverwriteTypeRole,
+			ID:    everyoneRoleID,
+			Allow: 0,
+			Deny:  discordgo.PermissionViewChannel | discordgo.PermissionSendMessages, // 1024 | 2048
+		},
 	}
 
 	// Prepare permission overwrites for read-only INFO category & rules channel
@@ -2055,6 +2119,14 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		if me, err := s.User("@me"); err == nil && me != nil {
 			botUserID = me.ID
 		}
+	}
+	if botUserID != "" {
+		privateOverwrites = append(privateOverwrites, &discordgo.PermissionOverwrite{
+			Type:  discordgo.PermissionOverwriteTypeMember,
+			ID:    botUserID,
+			Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages | discordgo.PermissionReadMessageHistory | discordgo.PermissionEmbedLinks,
+			Deny:  0,
+		})
 	}
 
 	infoOverwrites := []*discordgo.PermissionOverwrite{
@@ -2074,11 +2146,109 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		})
 	}
 
+	// 1. Private Sunfire category + chats/logs channels.
+	categoryName := "Sunfire"
+	var sunfireCategoryID string
+	sunfireCat := findCategory(categoryName)
+	if sunfireCat != nil {
+		sunfireCategoryID = sunfireCat.ID
+		if cfg.SunfireCategoryID != sunfireCat.ID {
+			cfg.SunfireCategoryID = sunfireCat.ID
+			cfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Sunfire category**: <#%s> (exists)", sunfireCategoryID))
+	} else {
+		newCat, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+			Name:                 categoryName,
+			Type:                 discordgo.ChannelTypeGuildCategory,
+			PermissionOverwrites: privateOverwrites,
+		})
+		if err != nil {
+			respondMsg("❌ Failed to create Sunfire category: " + err.Error())
+			return
+		}
+		sunfireCategoryID = newCat.ID
+		cfg.SunfireCategoryID = newCat.ID
+		cfgModified = true
+		guildChannels = append(guildChannels, newCat)
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Sunfire category**: created private category (<#%s>)", newCat.ID))
+	}
+
+	// Check #chats channel under Sunfire
+	chatsCh := findChannelUnder(sunfireCategoryID, "chats")
+	if chatsCh != nil {
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Chats channel**: <#%s> (exists)", chatsCh.ID))
+	} else {
+		newChats, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+			Name:                 "chats",
+			Type:                 discordgo.ChannelTypeGuildText,
+			ParentID:             sunfireCategoryID,
+			PermissionOverwrites: privateOverwrites,
+		})
+		if err != nil {
+			respondMsg("❌ Failed to create chats channel: " + err.Error())
+			return
+		}
+		guildChannels = append(guildChannels, newChats)
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Chats channel**: created <#%s>", newChats.ID))
+	}
+
+	// Check #logs channel under Sunfire
+	var logsCh *discordgo.Channel
+	if cfg.LoggingChannel != "" {
+		ch := findChannelByID(cfg.LoggingChannel)
+		if ch != nil && ch.ParentID == sunfireCategoryID {
+			logsCh = ch
+		}
+	}
+	if logsCh == nil {
+		logsCh = findChannelUnder(sunfireCategoryID, "logs")
+	}
+
+	if logsCh != nil {
+		if cfg.LoggingChannel != logsCh.ID {
+			cfg.LoggingChannel = logsCh.ID
+			cfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Logs channel**: <#%s> (exists)", logsCh.ID))
+	} else {
+		newLogs, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+			Name:                 "logs",
+			Type:                 discordgo.ChannelTypeGuildText,
+			ParentID:             sunfireCategoryID,
+			PermissionOverwrites: privateOverwrites,
+		})
+		if err != nil {
+			respondMsg("❌ Failed to create logs channel: " + err.Error())
+			return
+		}
+		cfg.LoggingChannel = newLogs.ID
+		cfgModified = true
+		guildChannels = append(guildChannels, newLogs)
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Logs channel**: created <#%s>", newLogs.ID))
+	}
+
 	// 2. Read-only INFO category.
-	// If infoCategoryId already exists in config.json, do not recreate it.
-	infoCategoryID := cfg.InfoCategoryID
+	var infoCategoryID string
+	if cfg.InfoCategoryID != "" {
+		ch := findChannelByID(cfg.InfoCategoryID)
+		if ch != nil && ch.Type == discordgo.ChannelTypeGuildCategory {
+			infoCategoryID = ch.ID
+		}
+	}
+	if infoCategoryID == "" {
+		infoCat := findCategory("INFO")
+		if infoCat != nil {
+			infoCategoryID = infoCat.ID
+		}
+	}
+
 	if infoCategoryID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **INFO category**: <#%s> (already exists in config, skipped creation)", infoCategoryID))
+		if cfg.InfoCategoryID != infoCategoryID {
+			cfg.InfoCategoryID = infoCategoryID
+			cfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **INFO category**: <#%s> (exists)", infoCategoryID))
 	} else {
 		infoCategory, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 			Name:                 "INFO",
@@ -2092,13 +2262,28 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		infoCategoryID = infoCategory.ID
 		cfg.InfoCategoryID = infoCategory.ID
 		cfgModified = true
+		guildChannels = append(guildChannels, infoCategory)
 		statusMessages = append(statusMessages, fmt.Sprintf("• **INFO category**: created read-only category (<#%s>)", infoCategory.ID))
 	}
 
 	// 3. Rules channel under INFO category and 1-time rules message.
-	// If rulesChannelId already exists in config.json, do not recreate it or repost rules message.
+	var rulesCh *discordgo.Channel
 	if cfg.RulesChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Rules channel**: <#%s> (already exists in config, rules message not reposted)", cfg.RulesChannelID))
+		ch := findChannelByID(cfg.RulesChannelID)
+		if ch != nil && ch.ParentID == infoCategoryID {
+			rulesCh = ch
+		}
+	}
+	if rulesCh == nil {
+		rulesCh = findChannelUnder(infoCategoryID, "rules")
+	}
+
+	if rulesCh != nil {
+		if cfg.RulesChannelID != rulesCh.ID {
+			cfg.RulesChannelID = rulesCh.ID
+			cfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Rules channel**: <#%s> (already exists, rules message not reposted)", rulesCh.ID))
 	} else {
 		rulesChannel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 			Name:                 "rules",
@@ -2113,6 +2298,7 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		cfg.RulesChannelID = rulesChannel.ID
 		cfgModified = true
+		guildChannels = append(guildChannels, rulesChannel)
 
 		// Post 1-time rules message in the rules channel
 		rulesEmbed := &discordgo.MessageEmbed{
@@ -2172,103 +2358,145 @@ func handleSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		statusMessages = append(statusMessages, fmt.Sprintf("• **Rules channel**: created <#%s> and posted rules message", rulesChannel.ID))
 	}
 
-	// 4. Feeds & Media Category and Channels (YouTube, Spotify, Movies, FreeStuff, Kick).
+	// 4. Feeds & Media Category and Channels (YouTube, Spotify, Movies, FreeStuff, Kick, NIST).
 	gCfg := getGuildSettings(guildID)
 	gCfgModified := false
 
 	feedsCategoryName := "Feeds & Media"
 	var feedsCategoryID string
-
-	// Check if an existing feeds category already exists in the guild
-	guildChannels, err := s.GuildChannels(guildID)
-	if err == nil {
-		for _, ch := range guildChannels {
-			if ch.Type == discordgo.ChannelTypeGuildCategory && strings.EqualFold(ch.Name, feedsCategoryName) {
-				feedsCategoryID = ch.ID
-				break
-			}
-		}
-	}
-
-	if feedsCategoryID == "" {
-		feedsCat, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+	feedsCat := findCategory(feedsCategoryName)
+	if feedsCat != nil {
+		feedsCategoryID = feedsCat.ID
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Feeds category**: <#%s> (exists)", feedsCategoryID))
+	} else {
+		newFeedsCat, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 			Name:                 feedsCategoryName,
 			Type:                 discordgo.ChannelTypeGuildCategory,
 			PermissionOverwrites: infoOverwrites,
 		})
-		if err == nil && feedsCat != nil {
-			feedsCategoryID = feedsCat.ID
-			statusMessages = append(statusMessages, fmt.Sprintf("• **Feeds category**: created read-only category (<#%s>)", feedsCat.ID))
+		if err != nil {
+			respondMsg("❌ Failed to create Feeds & Media category: " + err.Error())
+			return
 		}
+		feedsCategoryID = newFeedsCat.ID
+		guildChannels = append(guildChannels, newFeedsCat)
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Feeds category**: created read-only category (<#%s>)", newFeedsCat.ID))
 	}
 
-	createFeedChannel := func(channelName string, currentID string) (string, bool) {
+	createOrFindFeedChannel := func(channelName, displayName, topic, currentID string) (string, bool) {
+		var found *discordgo.Channel
 		if currentID != "" {
-			// Check if channel still exists
-			if ch, err := s.Channel(currentID); err == nil && ch != nil {
-				return currentID, false
+			ch := findChannelByID(currentID)
+			if ch != nil && ch.ParentID == feedsCategoryID {
+				found = ch
 			}
 		}
+		if found == nil {
+			found = findChannelUnder(feedsCategoryID, channelName)
+		}
+
+		if found != nil {
+			return found.ID, false
+		}
+
 		newCh, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 			Name:                 channelName,
 			Type:                 discordgo.ChannelTypeGuildText,
 			ParentID:             feedsCategoryID,
+			Topic:                topic,
 			PermissionOverwrites: infoOverwrites,
 		})
 		if err != nil || newCh == nil {
-			return currentID, false
+			logErrorf("failed to create feed channel %s: %v", channelName, err)
+			return "", false
 		}
+		guildChannels = append(guildChannels, newCh)
 		return newCh.ID, true
 	}
 
 	// YouTube Channel
-	if newID, created := createFeedChannel("youtube", gCfg.YouTubeChannelID); created {
+	if newID, created := createOrFindFeedChannel("youtube", "YouTube", "YouTube video uploads and channel updates", gCfg.YouTubeChannelID); created {
 		gCfg.YouTubeChannelID = newID
 		gCfg.YouTubeEnabled = true
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **YouTube channel**: created <#%s>", newID))
-	} else if gCfg.YouTubeChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **YouTube channel**: <#%s> (exists)", gCfg.YouTubeChannelID))
+	} else if newID != "" {
+		if gCfg.YouTubeChannelID != newID {
+			gCfg.YouTubeChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **YouTube channel**: <#%s> (exists)", newID))
 	}
 
 	// Spotify Channel
-	if newID, created := createFeedChannel("spotify", gCfg.SpotifyChannelID); created {
+	if newID, created := createOrFindFeedChannel("spotify", "Spotify", "Spotify track and playlist updates", gCfg.SpotifyChannelID); created {
 		gCfg.SpotifyChannelID = newID
 		gCfg.SpotifyEnabled = true
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **Spotify channel**: created <#%s>", newID))
-	} else if gCfg.SpotifyChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Spotify channel**: <#%s> (exists)", gCfg.SpotifyChannelID))
+	} else if newID != "" {
+		if gCfg.SpotifyChannelID != newID {
+			gCfg.SpotifyChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Spotify channel**: <#%s> (exists)", newID))
 	}
 
 	// Movies Channel
-	if newID, created := createFeedChannel("movies", gCfg.MoviesThisWeekChannelID); created {
+	if newID, created := createOrFindFeedChannel("movies", "Movies", "New theater and streaming movie releases", gCfg.MoviesThisWeekChannelID); created {
 		gCfg.MoviesThisWeekChannelID = newID
 		gCfg.StreamingThisWeekChannelID = newID
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **Movies channel**: created <#%s>", newID))
-	} else if gCfg.MoviesThisWeekChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Movies channel**: <#%s> (exists)", gCfg.MoviesThisWeekChannelID))
+	} else if newID != "" {
+		if gCfg.MoviesThisWeekChannelID != newID {
+			gCfg.MoviesThisWeekChannelID = newID
+			gCfg.StreamingThisWeekChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Movies channel**: <#%s> (exists)", newID))
 	}
 
 	// FreeStuff Channel
-	if newID, created := createFeedChannel("free-stuff", gCfg.FreeStuffChannelID); created {
+	if newID, created := createOrFindFeedChannel("free-stuff", "FreeStuff", "Free games, DLCs, and digital deals", gCfg.FreeStuffChannelID); created {
 		gCfg.FreeStuffChannelID = newID
 		gCfg.FreeStuffEnabled = true
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **FreeStuff channel**: created <#%s>", newID))
-	} else if gCfg.FreeStuffChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **FreeStuff channel**: <#%s> (exists)", gCfg.FreeStuffChannelID))
+	} else if newID != "" {
+		if gCfg.FreeStuffChannelID != newID {
+			gCfg.FreeStuffChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **FreeStuff channel**: <#%s> (exists)", newID))
 	}
 
 	// Kick Streams Channel
-	if newID, created := createFeedChannel("kick-streams", gCfg.KickChannelID); created {
+	if newID, created := createOrFindFeedChannel("kick-streams", "Kick streams", "Live stream notifications from Kick", gCfg.KickChannelID); created {
 		gCfg.KickChannelID = newID
 		gCfg.KickEnabled = true
 		gCfgModified = true
 		statusMessages = append(statusMessages, fmt.Sprintf("• **Kick streams channel**: created <#%s>", newID))
-	} else if gCfg.KickChannelID != "" {
-		statusMessages = append(statusMessages, fmt.Sprintf("• **Kick streams channel**: <#%s> (exists)", gCfg.KickChannelID))
+	} else if newID != "" {
+		if gCfg.KickChannelID != newID {
+			gCfg.KickChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **Kick streams channel**: <#%s> (exists)", newID))
+	}
+
+	// NIST Channel (National Vulnerability Database: https://nvd.nist.gov/)
+	if newID, created := createOrFindFeedChannel("nist", "NIST (NVD)", "National Vulnerability Database (NVD / NIST) CVE feed • https://nvd.nist.gov/", gCfg.NistChannelID); created {
+		gCfg.NistChannelID = newID
+		gCfg.NistEnabled = true
+		gCfgModified = true
+		statusMessages = append(statusMessages, fmt.Sprintf("• **NIST (NVD) channel**: created <#%s>", newID))
+	} else if newID != "" {
+		if gCfg.NistChannelID != newID {
+			gCfg.NistChannelID = newID
+			gCfgModified = true
+		}
+		statusMessages = append(statusMessages, fmt.Sprintf("• **NIST (NVD) channel**: <#%s> (exists)", newID))
 	}
 
 	if gCfgModified {
@@ -2336,12 +2564,13 @@ func handleNotifiersCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 		guilds := loadGuildSettings()
 		var gInfo string
 		for gID, g := range guilds {
-			gInfo += fmt.Sprintf("• **Guild %s**:\n  - YouTube: %t (Chan: %s, YouTubers: %d)\n  - Kick: %t (Chan: %s, Streamers: %d)\n  - Spotify: %t (Chan: %s)\n  - Movies: Chan: %s\n  - FreeStuff: %t (Chan: %s)\n",
+			gInfo += fmt.Sprintf("• **Guild %s**:\n  - YouTube: %t (Chan: %s, YouTubers: %d)\n  - Kick: %t (Chan: %s, Streamers: %d)\n  - Spotify: %t (Chan: %s)\n  - Movies: Chan: %s\n  - FreeStuff: %t (Chan: %s)\n  - NIST (NVD): %t (Chan: %s)\n",
 				gID, g.YouTubeEnabled, g.YouTubeChannelID, len(g.YouTubers),
 				g.KickEnabled, g.KickChannelID, len(g.KickStreamers),
 				g.SpotifyEnabled, g.SpotifyChannelID,
 				g.MoviesThisWeekChannelID,
 				g.FreeStuffEnabled, g.FreeStuffChannelID,
+				g.NistEnabled, g.NistChannelID,
 			)
 		}
 		if gInfo == "" {
@@ -2350,11 +2579,12 @@ func handleNotifiersCommand(s *discordgo.Session, i *discordgo.InteractionCreate
 
 		embed := &discordgo.MessageEmbed{
 			Title: "🔔 Media & Stream Notifiers Status",
-			Description: fmt.Sprintf("**Global Credentials:**\n• YouTube API: %t\n• Kick API: %t\n• TMDB API: %t\n• Spotify API: %t\n• Scrape Targets: %d URLs -> %d Channels\n\n**Guild Configurations:**\n%s",
+			Description: fmt.Sprintf("**Global Credentials:**\n• YouTube API: %t\n• Kick API: %t\n• TMDB API: %t\n• Spotify API: %t\n• NIST API: %t\n• Scrape Targets: %d URLs -> %d Channels\n\n**Guild Configurations:**\n%s",
 				cfg.YouTubeAPIKey != "",
 				cfg.KickClientID != "",
 				cfg.TMDBAPIKey != "",
 				cfg.SpotifyClientID != "",
+				cfg.NistAPIKey != "",
 				len(cfg.Scrape.URLs), len(cfg.Scrape.ChannelIDs),
 				gInfo,
 			),
