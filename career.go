@@ -761,6 +761,8 @@ func careerCommandSpec() commandSpec {
 							},
 						},
 						{Type: discordgo.ApplicationCommandOptionString, Name: "notes", Description: "Add or update notes", Required: false},
+						{Type: discordgo.ApplicationCommandOptionBoolean, Name: "followed_up", Description: "Mark follow-up as completed (true/false)", Required: false},
+						{Type: discordgo.ApplicationCommandOptionInteger, Name: "next_followup_days", Description: "Reschedule next follow-up reminder (e.g. 7 days)", Required: false},
 					},
 				},
 				{
@@ -1015,7 +1017,8 @@ func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, su
 		} else if a.Status == "Saved" {
 			totalSaved++
 		}
-		if now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived" {
+		isDue := !a.FollowedUp && now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived"
+		if isDue {
 			totalDue++
 		}
 
@@ -1024,7 +1027,7 @@ func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, su
 		case "All":
 			match = true
 		case "Due":
-			match = now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived"
+			match = isDue
 		case "Applied":
 			match = a.Status == "Applied"
 		case "Interviewing":
@@ -1061,9 +1064,12 @@ func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, su
 			statusIcon = "❌"
 		}
 
+		isDue := !a.FollowedUp && now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived"
 		dueNotice := ""
-		if now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived" {
+		if isDue {
 			dueNotice = " **[FOLLOW-UP DUE!]**"
+		} else if a.FollowedUp && a.Status != "Rejected" && a.Status != "Archived" {
+			dueNotice = " **[Followed Up ✅]**"
 		}
 
 		linkStr := ""
@@ -1102,6 +1108,10 @@ func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, su
 
 func handleCareerUpdate(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	var targetID, newStatus, newNotes string
+	var hasFollowedUp bool
+	var followedUpVal bool
+	var nextFollowUpDays int
+
 	for _, opt := range sub.Options {
 		switch opt.Name {
 		case "id":
@@ -1110,6 +1120,13 @@ func handleCareerUpdate(s *discordgo.Session, i *discordgo.InteractionCreate, su
 			newStatus = strings.TrimSpace(opt.StringValue())
 		case "notes":
 			newNotes = strings.TrimSpace(opt.StringValue())
+		case "followed_up":
+			hasFollowedUp = true
+			followedUpVal = opt.BoolValue()
+		case "next_followup_days":
+			if opt.IntValue() > 0 {
+				nextFollowUpDays = int(opt.IntValue())
+			}
 		}
 	}
 
@@ -1120,6 +1137,7 @@ func handleCareerUpdate(s *discordgo.Session, i *discordgo.InteractionCreate, su
 	for idx := range careerStore.Applications {
 		app := &careerStore.Applications[idx]
 		if strings.EqualFold(app.ID, targetID) || strings.Contains(strings.ToLower(app.Organization), strings.ToLower(targetID)) {
+			now := time.Now()
 			if newStatus != "" {
 				app.Status = newStatus
 			}
@@ -1130,15 +1148,48 @@ func handleCareerUpdate(s *discordgo.Session, i *discordgo.InteractionCreate, su
 					app.Notes = newNotes
 				}
 			}
-			app.UpdatedAt = time.Now()
+			if hasFollowedUp {
+				app.FollowedUp = followedUpVal
+			}
+			if nextFollowUpDays > 0 {
+				app.FollowUpDate = now.Add(time.Duration(nextFollowUpDays) * 24 * time.Hour)
+				if !hasFollowedUp {
+					app.FollowedUp = false
+				}
+			}
+			app.UpdatedAt = now
 			found = true
 			_ = saveCareerStoreLocked()
+
+			invokerID := ""
+			if i.Member != nil && i.Member.User != nil {
+				invokerID = i.Member.User.ID
+			} else if i.User != nil {
+				invokerID = i.User.ID
+			}
+			if nextFollowUpDays > 0 && invokerID != "" && i.ChannelID != "" {
+				scheduleCareerFollowUp(i.ChannelID, invokerID, app.Organization, app.Position, app.FollowUpDate)
+			}
+
+			var details []string
+			details = append(details, fmt.Sprintf("• **Status:** `%s`", app.Status))
+			if app.FollowedUp {
+				details = append(details, "• **Followed Up:** ✅ Yes")
+			} else {
+				details = append(details, "• **Followed Up:** ⏳ Pending")
+			}
+			if !app.FollowUpDate.IsZero() {
+				details = append(details, fmt.Sprintf("• **Next Follow-up:** %s", app.FollowUpDate.Format("Mon, Jan 02")))
+			}
+			if app.Notes != "" {
+				details = append(details, fmt.Sprintf("• **Notes:** %s", app.Notes))
+			}
 
 			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf("✅ **Updated `%s` (%s at %s):**\n• **Status:** `%s`\n• **Notes:** %s",
-						app.ID, app.Position, app.Organization, app.Status, app.Notes),
+					Content: fmt.Sprintf("✅ **Updated `%s` (%s at %s):**\n%s",
+						app.ID, app.Position, app.Organization, strings.Join(details, "\n")),
 					Flags: discordgo.MessageFlagsEphemeral,
 				},
 			})
@@ -1464,7 +1515,7 @@ func buildCareerStandupEmbed() *discordgo.MessageEmbed {
 			savedCount++
 		}
 
-		if now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived" {
+		if !a.FollowedUp && now.After(a.FollowUpDate) && a.Status != "Rejected" && a.Status != "Archived" {
 			dueApps = append(dueApps, fmt.Sprintf("• **%s** at **%s** (Applied %s)", a.Position, a.Organization, a.DateApplied.Format("Jan 02")))
 		}
 	}

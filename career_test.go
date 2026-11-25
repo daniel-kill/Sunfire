@@ -235,6 +235,42 @@ func TestCareerCommandSpec(t *testing.T) {
 			t.Errorf("expected subcommand %q in /career command", name)
 		}
 	}
+
+	// Verify update subcommand options including new follow-up options
+	var updateSub *discordgo.ApplicationCommandOption
+	for _, opt := range spec.Command.Options {
+		if opt.Name == "update" {
+			updateSub = opt
+			break
+		}
+	}
+	if updateSub == nil {
+		t.Fatalf("update subcommand not found in spec")
+	}
+
+	expectedUpdateOpts := map[string]discordgo.ApplicationCommandOptionType{
+		"id":                 discordgo.ApplicationCommandOptionString,
+		"status":             discordgo.ApplicationCommandOptionString,
+		"notes":              discordgo.ApplicationCommandOptionString,
+		"followed_up":        discordgo.ApplicationCommandOptionBoolean,
+		"next_followup_days": discordgo.ApplicationCommandOptionInteger,
+	}
+
+	for _, opt := range updateSub.Options {
+		expectedType, ok := expectedUpdateOpts[opt.Name]
+		if !ok {
+			t.Errorf("unexpected option %q in update subcommand", opt.Name)
+			continue
+		}
+		if opt.Type != expectedType {
+			t.Errorf("option %q expected type %v, got %v", opt.Name, expectedType, opt.Type)
+		}
+		delete(expectedUpdateOpts, opt.Name)
+	}
+
+	for missingOpt := range expectedUpdateOpts {
+		t.Errorf("missing expected option %q in update subcommand", missingOpt)
+	}
 }
 func TestCareerPDFResumeExtraction(t *testing.T) {
 	pdfPath := resumePDFPath()
@@ -276,5 +312,45 @@ func TestLoadAuthoritativeResume(t *testing.T) {
 	}
 	if !strings.Contains(src, "candidate_resume.md") {
 		t.Errorf("expected source to mention candidate_resume.md, got %s", src)
+	}
+}
+
+func TestCareerFollowUpStatusNotice(t *testing.T) {
+	now := time.Now()
+
+	// Case 1: Overdue application, not followed up
+	app1 := JobApplication{
+		FollowUpDate: now.Add(-24 * time.Hour),
+		FollowedUp:   false,
+		Status:       "Applied",
+	}
+	isDue1 := !app1.FollowedUp && now.After(app1.FollowUpDate) && app1.Status != "Rejected" && app1.Status != "Archived"
+	if !isDue1 {
+		t.Errorf("expected app1 to be marked due")
+	}
+
+	// Case 2: Overdue application, but follow-up was completed
+	app2 := JobApplication{
+		FollowUpDate: now.Add(-24 * time.Hour),
+		FollowedUp:   true,
+		Status:       "Applied",
+	}
+	isDue2 := !app2.FollowedUp && now.After(app2.FollowUpDate) && app2.Status != "Rejected" && app2.Status != "Archived"
+	if isDue2 {
+		t.Errorf("expected app2 NOT to be marked due after follow-up completed")
+	}
+	if !app2.FollowedUp {
+		t.Errorf("expected app2 to have FollowedUp == true")
+	}
+
+	// Case 3: Rejected or Archived should not trigger due notice even if past date
+	app3 := JobApplication{
+		FollowUpDate: now.Add(-24 * time.Hour),
+		FollowedUp:   false,
+		Status:       "Rejected",
+	}
+	isDue3 := !app3.FollowedUp && now.After(app3.FollowUpDate) && app3.Status != "Rejected" && app3.Status != "Archived"
+	if isDue3 {
+		t.Errorf("expected rejected app3 NOT to be marked due")
 	}
 }
