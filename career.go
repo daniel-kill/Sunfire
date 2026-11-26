@@ -739,6 +739,12 @@ func careerCommandSpec() commandSpec {
 								{Name: "Saved Only", Value: "Saved"},
 							},
 						},
+						{
+							Type:        discordgo.ApplicationCommandOptionBoolean,
+							Name:        "export",
+							Description: "Export the current status as formatted Markdown (.md) and PDF (.pdf) files",
+							Required:    false,
+						},
 					},
 				},
 				{
@@ -883,7 +889,7 @@ func showCareerHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Color:       0x1e3a8a,
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "`/career apply`", Value: "Log an application, set follow-up alerts, and track status.", Inline: false},
-			{Name: "`/career status`", Value: "View your pipeline dashboard and follow-ups due.", Inline: false},
+			{Name: "`/career status`", Value: "View your pipeline dashboard and follow-ups due (use `export:True` to download .md & .pdf).", Inline: false},
 			{Name: "`/career match`", Value: "Run AI fit analysis and ATS keyword breakdown for any job.", Inline: false},
 			{Name: "`/career coverletter`", Value: "Generate a custom, tailored cover letter from Resume.md.", Inline: false},
 			{Name: "`/career todos`", Value: "View/complete action items (Owens GPA, Penta GPA, OOD assistance).", Inline: false},
@@ -991,9 +997,12 @@ func handleCareerApply(s *discordgo.Session, i *discordgo.InteractionCreate, sub
 
 func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	filter := "Active"
+	exportFiles := false
 	for _, opt := range sub.Options {
 		if opt.Name == "filter" {
 			filter = opt.StringValue()
+		} else if opt.Name == "export" {
+			exportFiles = opt.BoolValue()
 		}
 	}
 
@@ -1097,12 +1106,45 @@ func handleCareerStatus(s *discordgo.Session, i *discordgo.InteractionCreate, su
 		Timestamp: now.Format(time.RFC3339),
 	}
 
+	var files []*discordgo.File
+	if exportFiles {
+		careerMu.Lock()
+		todos := make([]CareerActionItem, len(careerStore.ActionItems))
+		copy(todos, careerStore.ActionItems)
+		certs := make([]CertGoal, len(careerStore.CertGoals))
+		copy(certs, careerStore.CertGoals)
+		careerMu.Unlock()
+
+		dateStr := now.Format("2006-01-02")
+		mdContent := ExportCareerStatusMarkdown(displayed, filter, todos, certs)
+		files = append(files, &discordgo.File{
+			Name:        fmt.Sprintf("career_status_%s.md", dateStr),
+			ContentType: "text/markdown",
+			Reader:      strings.NewReader(mdContent),
+		})
+
+		pdfBytes, err := ExportCareerStatusPDF(displayed, filter, totalApplied, totalInterviewing, totalSaved, totalDue)
+		if err == nil && len(pdfBytes) > 0 {
+			files = append(files, &discordgo.File{
+				Name:        fmt.Sprintf("career_status_%s.pdf", dateStr),
+				ContentType: "application/pdf",
+				Reader:      bytes.NewReader(pdfBytes),
+			})
+		}
+	}
+
+	responseData := &discordgo.InteractionResponseData{
+		Embeds: []*discordgo.MessageEmbed{embed},
+		Flags:  discordgo.MessageFlagsEphemeral,
+	}
+	if exportFiles && len(files) > 0 {
+		responseData.Content = "📥 **Career Pipeline Status Exported!**\nAttached below are your formatted **Markdown (.md)** and **PDF (.pdf)** status files ready to download."
+		responseData.Files = files
+	}
+
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Flags:  discordgo.MessageFlagsEphemeral,
-		},
+		Data: responseData,
 	})
 }
 

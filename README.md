@@ -96,7 +96,7 @@ Startup is linear, explicit, and deterministic:
 
 ### 1. Career Copilot (`career.go`)
 An end-to-end career management and job search suite:
-- **Application Tracking:** `/career track <org> <position> [url] [status] [notes] [followup]`, `/career list`, `/career update`, `/career stats`, `/career export` (exports to structured JSON).
+- **Application Tracking:** `/career apply` (log new submissions with scheduled follow-up alerts), `/career status [filter] [export:True]` (view pipeline summary and follow-ups due; exports beautifully formatted `.md` and `.pdf` status files for download), `/career update` (update status, notes, and follow-up flags).
 - **AI Fit Analysis & ATS Matching:** `/career analyze` and `/career match` evaluate alignment against Daniel Kill's authoritative resume using native PDF text extraction (`Resume.pdf`), uploaded PDF/Markdown attachments, or local files, identifying strengths, ATS keywords, and interview angles.
 - **Cover Letter Drafting:** `/career cover-letter <org> <role> [description]` drafts customized, professional cover letters.
 - **Certification Roadmap:** `/career certs [status]` tracks industry credentials (AWS, CompTIA, Linux Foundation) with direct study links and priority tiers.

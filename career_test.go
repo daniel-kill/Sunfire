@@ -236,6 +236,39 @@ func TestCareerCommandSpec(t *testing.T) {
 		}
 	}
 
+	// Verify status subcommand options including export
+	var statusSub *discordgo.ApplicationCommandOption
+	for _, opt := range spec.Command.Options {
+		if opt.Name == "status" {
+			statusSub = opt
+			break
+		}
+	}
+	if statusSub == nil {
+		t.Fatalf("status subcommand not found in spec")
+	}
+
+	expectedStatusOpts := map[string]discordgo.ApplicationCommandOptionType{
+		"filter": discordgo.ApplicationCommandOptionString,
+		"export": discordgo.ApplicationCommandOptionBoolean,
+	}
+
+	for _, opt := range statusSub.Options {
+		expectedType, ok := expectedStatusOpts[opt.Name]
+		if !ok {
+			t.Errorf("unexpected option %q in status subcommand", opt.Name)
+			continue
+		}
+		if opt.Type != expectedType {
+			t.Errorf("option %q expected type %v, got %v", opt.Name, expectedType, opt.Type)
+		}
+		delete(expectedStatusOpts, opt.Name)
+	}
+
+	for missingOpt := range expectedStatusOpts {
+		t.Errorf("missing expected option %q in status subcommand", missingOpt)
+	}
+
 	// Verify update subcommand options including new follow-up options
 	var updateSub *discordgo.ApplicationCommandOption
 	for _, opt := range spec.Command.Options {

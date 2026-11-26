@@ -58,6 +58,12 @@ Sunfire is deployed and actively running as a **systemd user service** (`sunfire
   - Updated `/notifiers status` embed and description to include NIST NVD configuration state.
   - Added automated unit test suite in `setup_test.go` verifying catalog definitions, full-missing scenario, partial/NIST detection, and JSON configuration serialization.
   - Recompiled binary and restarted systemd user service (`sunfire.service`).
+- [x] **Career Status Export Option (`/career status export`):**
+  - Added `export` boolean option to `/career status` slash-command spec.
+  - Built pure-Go executive Markdown report generator (`ExportCareerStatusMarkdown`) detailing KPI summaries, urgent follow-up queue, full application directory, checklist items, and certification roadmap.
+  - Built pure-Go vector PDF generator (`ExportCareerStatusPDF`) with navy branding, KPI metric cards, zebra-striped application table, colored status badges, follow-up alerts, and multi-page pagination.
+  - Attached both `.md` and `.pdf` files to ephemeral Discord response for instant user download.
+  - Added comprehensive test suites in `career_export_test.go` and verified with 100% test pass.
 - [x] Completely updated core repository documentation: [README.md](README.md), [AGENTS.md](AGENTS.md), [HANDOFF.md](HANDOFF.md), and [ROADMAP.md](ROADMAP.md).
 
 ---
